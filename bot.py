@@ -50,8 +50,6 @@ async def on_message(self, message: discord.Message):
     if message.author == self.bot.user:
         return  # Ignore the bot's own messages
 
-    print("ON message")
-
     if message.content.startswith("!hello"):
         params = message.content.split()[1:]  # Skip the command itself
 

@@ -32,7 +32,7 @@ class ProfileCog(BaseCog):
     @commands.command(name="iam")
     async def iam(self, ctx: commands.Context, server: str = None, first: str = None, last: str = None):
         """
-                Store the user's profile.
+                Set your profile.
                 Expected format: !iam server first last
         """
         if not server or not first or not last:

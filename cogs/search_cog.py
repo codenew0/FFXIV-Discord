@@ -10,6 +10,10 @@ class SearchCog(BaseCog):
 
     @commands.command(name="lodestone")
     async def lodestone(self, ctx: commands.Context, server: str = None, first: str = None, last: str = None):
+        """
+                Show the user's profile.
+                Expected format: !lodestone server first last
+        """
         if not server or not first or not last:
             await ctx.reply("Error: Incorrect input format. Use `!lodestone server first last`", mention_author=False)
             return
@@ -20,15 +24,33 @@ class SearchCog(BaseCog):
         # Search Lodestone for the user's character using full name and server
         async with ctx.typing():
             character_ids = self.lodestone_search(full_name, server)
-            print(character_ids)
             if not character_ids:
-                await ctx.reply("No character found on Lodestone.")
+                embed = discord.Embed(
+                    title="No character found on Lodestone!",
+                    color=discord.Color.blue()
+                )
+                await ctx.reply(embed=embed, mention_author=False)
                 return
             char_id = character_ids[0]
 
             # Capture screenshot from URL: https://jp.tomestone.gg/character/{char_id}/{name_slug}
             screenshot_path = await self.capture_screenshot(char_id, name_slug)
-            await ctx.reply(file=discord.File(screenshot_path))
+
+        # Create an Embed
+        embed = discord.Embed(
+            title="Found it!",
+            description=f"Server: {server}\nName: {full_name}",
+            color=discord.Color.blue()
+        )
+
+        # Attach the screenshot file
+        file = discord.File(screenshot_path, filename="lodestone.png")
+
+        # Reference the attached file in the embed
+        embed.set_image(url="attachment://lodestone.png")
+
+        # Send the embed with the file
+        await ctx.reply(embed=embed, file=file, mention_author=False)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(SearchCog(bot))

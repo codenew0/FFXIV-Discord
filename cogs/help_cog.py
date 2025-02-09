@@ -3,37 +3,57 @@ import discord
 from discord.ext import commands
 
 class HelpCog(commands.Cog):
+    """
+    ヘルプコマンドを管理するためのCogクラス。
+    """
     def __init__(self, bot: commands.Bot):
+        """
+        HelpCogのコンストラクタ。
+        Botのインスタンスを受け取り、クラスのメンバに保持する。
+        """
         self.bot = bot
 
     @commands.command(name="help")
     async def help_command(self, ctx: commands.Context):
         """
-                Yes, it's me!!!!!!!
+            どうも～
         """
+        # ヘルプメッセージをEmbedで作成
         embed = discord.Embed(
-            title="Help",
-            description="List of available commands:",
+            title="ヘルプ",
+            description="利用可能なコマンド一覧:",
             color=discord.Color.blue()
         )
+        # 画像ファイルを読み込み（添付ファイルとして送信するために必要）
         file = discord.File("icon.png", filename="icon.png")
 
+        # Embedの作者部分に設定
         embed.set_author(name="FF14 bot", icon_url="attachment://icon.png")
+        # Embedのサムネイル画像を設定
         embed.set_thumbnail(url="attachment://icon.png")
-        embed.add_field(name="Command Prefix", value="!", inline=True)
-        embed.add_field(name="Inline Field 2", value="Value 2", inline=True)
+        # フィールドの追加（例としてコマンドプレフィックスなどを表示）
+        embed.add_field(name="コマンドプレフィックス", value="!", inline=True)
+        embed.add_field(name="サンプルフィールド", value="command", inline=True)
 
+        # Botに登録されている全コマンドを繰り返し、フィールドとして追加
         for command in self.bot.commands:
-            # You can skip hidden commands if desired:
+            # 隠しコマンド(command.hiddenがTrue)は表示しないようにすることも可能
             if not command.hidden:
                 embed.add_field(
                     name=command.name,
-                    value=command.help or "No description provided",
+                    value=command.help or "説明が設定されていません",
                     inline=False
                 )
-        embed.set_footer(text="Footer text here", icon_url="attachment://icon.png")
+
+        # フッターの設定
+        embed.set_footer(text="by Trunks Vegeta@Atomos", icon_url="attachment://icon.png")
+        # Embedとファイルを同時に送信
         await ctx.send(embed=embed, file=file)
 
 async def setup(bot: commands.Bot):
+    """
+    このCogをBotに登録するためのセットアップ関数。
+    Botの拡張機能としてロードされる。
+    """
     await bot.add_cog(HelpCog(bot))
     print("HelpCog loaded.")

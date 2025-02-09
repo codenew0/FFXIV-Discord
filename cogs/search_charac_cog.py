@@ -26,6 +26,10 @@ class SearchCog(BaseCog):
             await ctx.reply("使い方わかる？！ `!charac server first last`", mention_author=False)
             return
 
+        server = server.capitalize()
+        first = first.capitalize()
+        last = last.capitalize()
+
         # フルネームを生成（例: "first last"）
         full_name = f"{first} {last}"
         # 名前をスラッグ形式に変換（例: "first-last"、すべて小文字に変換）

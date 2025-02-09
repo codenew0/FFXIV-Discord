@@ -63,6 +63,10 @@ class ProfileCog(BaseCog):
             await ctx.reply(embed=embed, mention_author=False)
             return
 
+        server = server.capitalize()
+        first = first.capitalize()
+        last = last.capitalize()
+
         # プロフィール情報を辞書形式で作成
         profile = {
             "server": server,

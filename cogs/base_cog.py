@@ -3,19 +3,20 @@ from discord.ext import commands
 from playwright.async_api import async_playwright
 import requests
 from bs4 import BeautifulSoup
+import json
 import re
+
 
 class BaseCog(commands.Cog):
     def __init__(self):
-        super().__init__()
-        # Shared methods here
+        super.__init__()
 
     async def capture_screenshot(self, char_id: str, name_slug: str) -> str:
         """
         Capture a screenshot from the URL:
         https://jp.tomestone.gg/character/{char_id}/{name_slug}
         """
-        pathname = "screenshot.png"
+        pathname = "character.png"
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             page = await browser.new_page()
@@ -59,14 +60,28 @@ class BaseCog(commands.Cog):
             await browser.close()
         return pathname
 
+    def load_worlds_jp(self, data_file_worlds_jp):
+        try:
+            with open(data_file_worlds_jp, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
+
     def lodestone_search(self, query: str, worldname: str):
         """
         Searches the Lodestone for the given query and worldname.
         Only elements with an exact class of ["entry"] are considered.
         Returns a list of character IDs.
         """
-        url = "https://jp.finalfantasyxiv.com/lodestone/character/"
+        with open("config.json", "r") as f:
+            config = json.load(f)
+
+        data_file_worlds_jp = self.load_worlds_jp(config["DATA_FILE_WORLD_JP"])
+        if worldname not in data_file_worlds_jp:
+            return None
+
         params = {"q": query, "worldname": worldname}
+        url = "https://jp.finalfantasyxiv.com/lodestone/character/"
         response = requests.get(url, params=params)
         soup = BeautifulSoup(response.text, "html.parser")
         # Find all entries with class="entry"
@@ -74,27 +89,24 @@ class BaseCog(commands.Cog):
         if not entries:
             return None
 
-        # Take only the first entry
-        first_entry = entries[0]
-
         # Find the element containing the character's displayed name
-        name_el = first_entry.find("p", class_="entry__name")
-        if not name_el:
-            return None
-
-        # Compare the extracted name to our query
-        found_name = name_el.get_text(strip=True)
-        if found_name != query:
-            return None
-
-        # Only select elements whose class attribute is exactly ["entry"]
-        entries = soup.find_all(lambda tag: tag.has_attr("class") and tag["class"] == ["entry"])
-
         character_ids = []
         for entry in entries:
+            name_el = entry.find("p", class_="entry__name")
+            if not name_el:
+                return None
+            found_name = name_el.get_text(strip=True)
+            if found_name != query:
+                continue
+
             link = entry.find("a", href=re.compile(r"/lodestone/character/\d+/"))
             if link:
                 match = re.search(r"/lodestone/character/(\d+)/", link["href"])
                 if match:
                     character_ids.append(match.group(1))
-        return character_ids
+                    break
+
+        if not character_ids:
+            return None
+
+        return character_ids[0]

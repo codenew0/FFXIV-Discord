@@ -1,4 +1,4 @@
-# cogs/search_cog.py
+# cogs/search_charac_cog.py
 import discord
 from discord.ext import commands
 from cogs.base_cog import BaseCog
@@ -8,8 +8,8 @@ class SearchCog(BaseCog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.command(name="lodestone")
-    async def lodestone(self, ctx: commands.Context, server: str = None, first: str = None, last: str = None):
+    @commands.command(name="charac")
+    async def charac(self, ctx: commands.Context, server: str = None, first: str = None, last: str = None):
         """
                 Show the user's profile.
                 Expected format: !lodestone server first last
@@ -23,15 +23,14 @@ class SearchCog(BaseCog):
 
         # Search Lodestone for the user's character using full name and server
         async with ctx.typing():
-            character_ids = self.lodestone_search(full_name, server)
-            if not character_ids:
+            char_id = self.lodestone_search(full_name, server)
+            if not char_id:
                 embed = discord.Embed(
                     title="No character found on Lodestone!",
                     color=discord.Color.blue()
                 )
                 await ctx.reply(embed=embed, mention_author=False)
                 return
-            char_id = character_ids[0]
 
             # Capture screenshot from URL: https://jp.tomestone.gg/character/{char_id}/{name_slug}
             screenshot_path = await self.capture_screenshot(char_id, name_slug)

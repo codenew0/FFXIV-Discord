@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 import json
 import asyncio
+import secrets
 
 # Load configuration from config.json
 with open("config.json", "r") as f:
@@ -14,6 +15,9 @@ CHANNEL_ID = config["CHANNEL_ID"]
 
 intents = discord.Intents.default()
 intents.message_content = True
+
+random_hash = secrets.token_hex(16)
+print("QUIT HASH: ", random_hash)
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -46,24 +50,41 @@ async def on_ready():
 
 
 @bot.event
-async def on_message(self, message: discord.Message):
-    if message.author == self.bot.user:
-        return  # Ignore the bot's own messages
+async def on_message(message: discord.Message):
+    # Ignore the bot's own messages
+    if message.author == bot.user:
+        return
 
+    # Custom logic for "!hello"
     if message.content.startswith("!hello"):
-        params = message.content.split()[1:]  # Skip the command itself
-
+        params = message.content.split()[1:]
         if params:
-            formatted_params = " and ".join(params)  # Join words with "and"
+            formatted_params = " and ".join(params)
             response = f"Hi, {formatted_params} was sent"
         else:
             response = "Hi, but you didn't send any parameters!"
 
-        await message.reply(response, mention_author=False)  # Reply without @mention
-        return  # Do not call process_commands if we've already handled this message
+        # Reply without mentioning the author
+        await message.reply(response, mention_author=False)
+        return
 
-    await self.bot.process_commands(message)  # Allow other commands to run
+    # IMPORTANT: Process other commands if it's not a custom message
+    await bot.process_commands(message)
 
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    # For all other errors:
+    raise error
+
+@bot.command(name="quit")
+async def quit_bot(ctx: commands.Context, hash_str: str):
+    """Shut down the bot."""
+    if hash_str == random_hash:
+        await ctx.send("Bot is shutting down...")
+        await bot.close()
 
 async def main():
     async with bot:

@@ -72,7 +72,7 @@ class ItemCog(commands.Cog):
         # 指定された日本語のアイテム名からリンクを取得
         item_n = self.find_link_by_item_jp(item)
         if not item_n:
-            await ctx.reply("アイテム見つからないぞ！わざとじゃなかったら管理員に連絡してくれ", mention_author=False)
+            await ctx.reply("アイテム見つからないぞ！取引できるアイテムしか検索できない", mention_author=False)
             return
 
         # 対象のアイテムページと画像URL、スクリーンショットの保存先を定義
@@ -134,11 +134,6 @@ class ItemCog(commands.Cog):
                 # 新しいページ（タブ）を作成し、アイテムページにアクセス
                 page = await context.new_page()
                 await page.goto(item_page)
-
-                # デバッグ用にページのHTML内容をja.txtに保存
-                html_content = await page.content()
-                with open("ja.txt", "w", encoding="utf-8") as f:
-                    f.write(html_content)
 
                 # 'div'要素のうち、class属性が"tab"の部分を取得
                 element = await page.query_selector('div[class="tab"]')

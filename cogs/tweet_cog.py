@@ -109,36 +109,38 @@ class TweetCog(commands.Cog):
             last_id = await self.get_last_tweets_id()
             # ツイートのURLを生成
             link = f"https://x.com/FF_XIV_JP/status/{last_id}"
-            async with async_playwright() as p:
-                # Chromiumブラウザをヘッドレスモードで起動
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page()
-                await page.goto(link, timeout=10000)
+            await ctx.reply(link)
+            # async with async_playwright() as p:
+            #     # Chromiumブラウザをヘッドレスモードで起動
+            #     browser = await p.chromium.launch(headless=True)
+            #     page = await browser.new_page()
+            #     await page.goto(link, timeout=10000)
+            #
+            #     # ツイート記事部分 (article要素) の読み込みを待つ
+            #     await page.wait_for_selector("article")
+            #     article = await page.query_selector("article")
+            #     if article is None:
+            #         await ctx.reply("エラー: article要素が見つかりませんでした")
+            #         await browser.close()
+            #         return
+            #
+            #     # ツイートのスクリーンショットを保存するパス
+            #     tweets_path = "tweets.png"
+            #     await article.screenshot(path=tweets_path)
+            #
+            #     # Embedメッセージを作成
+            #     embed = discord.Embed(
+            #         title=f"{link}",
+            #         color=discord.Color.blue()
+            #     )
+            #     file = discord.File(tweets_path, filename="tweets.png")
+            #
+            #     # Embed内で添付画像を参照
+            #     embed.set_image(url="attachment://tweets.png")
+            #
+            #     await ctx.reply(embed=embed, file=file, mention_author=False)
+            #     await browser.close()
 
-                # ツイート記事部分 (article要素) の読み込みを待つ
-                await page.wait_for_selector("article")
-                article = await page.query_selector("article")
-                if article is None:
-                    await ctx.reply("エラー: article要素が見つかりませんでした")
-                    await browser.close()
-                    return
-
-                # ツイートのスクリーンショットを保存するパス
-                tweets_path = "tweets.png"
-                await article.screenshot(path=tweets_path)
-
-                # Embedメッセージを作成
-                embed = discord.Embed(
-                    title=f"{link}",
-                    color=discord.Color.blue()
-                )
-                file = discord.File(tweets_path, filename="tweets.png")
-
-                # Embed内で添付画像を参照
-                embed.set_image(url="attachment://tweets.png")
-
-                await ctx.reply(embed=embed, file=file, mention_author=False)
-                await browser.close()
 
     @tasks.loop(minutes=20)
     async def fetch_tweets_task(self):
@@ -157,9 +159,9 @@ class TweetCog(commands.Cog):
             return
 
         # 新しいツイートがあった場合、通知メッセージを送信
-        await channel.send(f"新しいツイートがあります {self.x_user}: https://twitter.com/{self.x_user}/status/{last_id}")
+        await channel.send(f"新しいツイートがあるよ～ {self.x_user}: https://twitter.com/{self.x_user}/status/{last_id}")
         # 送信済みツイートIDを保存
-        self.save_sent_tweets(self.sent_tweets)
+        self.save_sent_tweets([last_id])
 
     @fetch_tweets_task.before_loop
     async def before_fetch_tweets(self):

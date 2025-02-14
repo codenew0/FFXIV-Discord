@@ -20,7 +20,6 @@ intents.message_content = True
 
 # ボット終了時に必要なランダムなハッシュ値を生成（終了コマンドの認証用）
 random_hash = secrets.token_hex(16)
-print("QUIT HASH: ", random_hash)
 
 # ボットのインスタンスを作成。コマンドプレフィックスは "!" とする
 bot = commands.Bot(command_prefix='!', intents=intents)
@@ -56,7 +55,7 @@ async def on_ready():
     print(f"{bot.user} としてログインしました")
     channel = bot.get_channel(CHANNEL_ID)
     if channel:
-        await channel.send("Hello, I'm online!")
+        await channel.send("botオンライン!")
     # 登録されているすべてのコマンドをデバッグ出力
     print("登録されているコマンド:")
     for cmd in bot.commands:
@@ -109,17 +108,64 @@ async def on_command_error(ctx, error):
     raise error
 
 
+@bot.command(name="ping", hidden=True)
+async def ping(ctx):
+    await ctx.send(f'Pong! {round(bot.latency * 1000)}ms')
+
+
 @bot.command(name="quit")
 async def quit_bot(ctx: commands.Context, hash_str: str=None):
     """
-    しゅーりょー！（つかっちゃだめよ～）
+    しゅーりょー！（機能異常時）
     """
     if not hash_str or hash_str != random_hash:
-        await ctx.reply("つかっちゃだめってつってんじゃん！！")
+        await ctx.reply(f"なにかあったの？{random_hash}")
         return
 
-    await ctx.send("Bot is shutting down...")
+    await ctx.send("さよおうなら～")
     await bot.close()
+
+
+@bot.command(name="load", hidden=True)
+@commands.is_owner()
+async def load_extension(ctx: commands.Context, extension: str):
+    """
+    指定した拡張モジュール (Cog) のロードを行います。
+    例: !load profile_cog
+    """
+    try:
+        await ctx.bot.load_extension(f"cogs.{extension}")
+        await ctx.send(f"Extension `{extension}` loaded successfully.")
+    except Exception as e:
+        await ctx.send(f"Failed to load extension `{extension}`.\nError: {e}")
+
+
+@bot.command(name="reload", hidden=True)
+@commands.is_owner()  # オーナーのみ実行できるようにする
+async def reload_extension(ctx, extension: str):
+    """
+        指定した拡張モジュール (Cog) のリロードを行います。
+        例: !reload profile_cog
+        """
+    try:
+        await ctx.bot.reload_extension(f"cogs.{extension}")
+        await ctx.send(f"Extension `{extension}` reloaded successfully.")
+    except Exception as e:
+        await ctx.send(f"Failed to reload extension `{extension}`.\nError: {e}")
+
+
+@bot.command(name="unload", hidden=True)
+@commands.is_owner()
+async def unload_extension(ctx: commands.Context, extension: str):
+    """
+    指定した拡張モジュール (Cog) のアンロードを行います。
+    例: !unload profile_cog
+    """
+    try:
+        await ctx.bot.unload_extension(f"cogs.{extension}")
+        await ctx.send(f"Extension `{extension}` unloaded successfully.")
+    except Exception as e:
+        await ctx.send(f"Failed to unload extension `{extension}`.\nError: {e}")
 
 
 async def main():

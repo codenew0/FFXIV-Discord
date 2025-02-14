@@ -51,13 +51,13 @@ class ProfileCog(BaseCog):
     @commands.command(name="iam")
     async def iam(self, ctx: commands.Context, server: str = None, first: str = None, last: str = None):
         """
-        私はだれだあ・・（自分のプロフィールをリンク）
+        私は・・（自分のプロフィールをリンク）
         Usage: !iam <server> <first> <last>
         """
         # 入力が不足している場合、エラーメッセージを送信
         if not server or not first or not last:
             embed = discord.Embed(
-                title="てめぇフォーマットわからんの？ \n `!iam server first last`で入力してくれや！",
+                title="てめぇ、フォーマットわからんの？ \n `!iam server first last`で入力してくれや！",
                 color=discord.Color.blue()
             )
             await ctx.reply(embed=embed, mention_author=False)

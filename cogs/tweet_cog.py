@@ -15,6 +15,7 @@ class TweetCog(commands.Cog):
     Twitter（X）の最新ツイートを取得し、Discordに送信するためのCogクラス。
     定期的にツイートをチェックし、新しいツイートがあれば通知を送信します。
     """
+
     def __init__(self, bot: commands.Bot):
         """
         コンストラクタ。
@@ -141,16 +142,15 @@ class TweetCog(commands.Cog):
             #     await ctx.reply(embed=embed, file=file, mention_author=False)
             #     await browser.close()
 
-
-    @tasks.loop(minutes=20)
+    @tasks.loop(minutes=30)
     async def fetch_tweets_task(self):
         """
         定期的に最新ツイートをチェックし、新しいツイートがあれば指定のDiscordチャンネルに通知を送信するタスク。
-        20分ごとに実行されます。
+        30分ごとに実行されます。
         """
         # 通知先のチャンネルを取得
         channel = self.bot.get_channel(self.channel_id)
-
+        self.sent_tweets = self.load_sent_tweets()
         # 最新ツイートIDを取得
         last_id = await self.get_last_tweets_id()
         if last_id in self.sent_tweets:

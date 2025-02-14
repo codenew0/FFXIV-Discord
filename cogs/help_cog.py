@@ -2,6 +2,7 @@
 import discord
 from discord.ext import commands
 
+
 class HelpCog(commands.Cog):
     """
     ヘルプコマンドを管理するためのCogクラス。
@@ -32,11 +33,12 @@ class HelpCog(commands.Cog):
         # Embedのサムネイル画像を設定
         embed.set_thumbnail(url="attachment://icon.png")
         # フィールドの追加（例としてコマンドプレフィックスなどを表示）
-        embed.add_field(name="コマンドプレフィックス", value="!", inline=True)
-        embed.add_field(name="サンプルフィールド", value="command", inline=True)
+        embed.add_field(name="Prefix", value="!", inline=True)
+        embed.add_field(name="Value", value="command", inline=True)
 
-        # Botに登録されている全コマンドを繰り返し、フィールドとして追加
-        for command in self.bot.commands:
+        # Botに登録されている全コマンドを、名前順にソートしてフィールドとして追加
+        commands_sorted = sorted(self.bot.commands, key=lambda cmd: cmd.name)
+        for command in commands_sorted:
             # 隠しコマンド(command.hiddenがTrue)は表示しないようにすることも可能
             if not command.hidden:
                 embed.add_field(
@@ -49,6 +51,7 @@ class HelpCog(commands.Cog):
         embed.set_footer(text="by Trunks Vegeta@Atomos", icon_url="attachment://icon.png")
         # Embedとファイルを同時に送信
         await ctx.send(embed=embed, file=file)
+
 
 async def setup(bot: commands.Bot):
     """

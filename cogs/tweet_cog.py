@@ -1,5 +1,4 @@
 # cogs/tweet_cog.py
-import discord
 import os
 from discord.ext import commands, tasks
 from playwright.async_api import async_playwright
@@ -111,36 +110,6 @@ class TweetCog(commands.Cog):
             # ツイートのURLを生成
             link = f"https://x.com/FF_XIV_JP/status/{last_id}"
             await ctx.reply(link)
-            # async with async_playwright() as p:
-            #     # Chromiumブラウザをヘッドレスモードで起動
-            #     browser = await p.chromium.launch(headless=True)
-            #     page = await browser.new_page()
-            #     await page.goto(link, timeout=10000)
-            #
-            #     # ツイート記事部分 (article要素) の読み込みを待つ
-            #     await page.wait_for_selector("article")
-            #     article = await page.query_selector("article")
-            #     if article is None:
-            #         await ctx.reply("エラー: article要素が見つかりませんでした")
-            #         await browser.close()
-            #         return
-            #
-            #     # ツイートのスクリーンショットを保存するパス
-            #     tweets_path = "tweets.png"
-            #     await article.screenshot(path=tweets_path)
-            #
-            #     # Embedメッセージを作成
-            #     embed = discord.Embed(
-            #         title=f"{link}",
-            #         color=discord.Color.blue()
-            #     )
-            #     file = discord.File(tweets_path, filename="tweets.png")
-            #
-            #     # Embed内で添付画像を参照
-            #     embed.set_image(url="attachment://tweets.png")
-            #
-            #     await ctx.reply(embed=embed, file=file, mention_author=False)
-            #     await browser.close()
 
     @tasks.loop(minutes=30)
     async def fetch_tweets_task(self):

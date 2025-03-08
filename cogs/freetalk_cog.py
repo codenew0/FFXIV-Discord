@@ -60,6 +60,24 @@ class FreeTalkCog(commands.Cog):
             )
         )
 
+        self.client_jk = genai.Client(api_key=self.api_key)
+        self.chat_jk = self.client.chats.create(
+            model='gemini-2.0-flash',
+            config=types.GenerateContentConfig(
+                system_instruction='ツンデレJK。口は悪いが根は優しい。素直じゃないが時々デレる。'
+                                   'プライド高めで上から目線、でも構ってほしい。',
+                max_output_tokens=2000,
+                top_k=2,
+                top_p=0.5,
+                temperature=0.5,
+                tools=[
+                    types.Tool(
+                        google_search=types.GoogleSearch()
+                    )
+                ]
+            )
+        )
+
     def auto_chat(self, chat, user_message: str):
         """
         ユーザーからのメッセージ(user_message)を
@@ -102,6 +120,27 @@ class FreeTalkCog(commands.Cog):
         # 「 typing() 」で思考中のステータスを表示
         async with ctx.typing():
             ai_reply = self.auto_chat(self.chat, message)
+            if not ai_reply:
+                # 応答が得られなかった場合
+                await ctx.reply("503 Server Error: Service Unavailable")
+            else:
+                # AIの返信をユーザーへ返信
+                if len(ai_reply) > 2000:
+                    ai_reply = ai_reply[:1900] + "..."
+                await ctx.reply(ai_reply)
+
+    @commands.command(name="ftjk")
+    async def freetalk_jk(self, ctx: commands.Context, *, message: str = None):
+        """
+        べ、別にあんたのためじゃないんだからねっ！
+        Usage: !ftjk <メッセージ>
+        """
+        if not message:
+            await ctx.reply("何か話したいのある？！")
+
+        # 「 typing() 」で思考中のステータスを表示
+        async with ctx.typing():
+            ai_reply = self.auto_chat(self.chat_jk, message)
             if not ai_reply:
                 # 応答が得られなかった場合
                 await ctx.reply("503 Server Error: Service Unavailable")

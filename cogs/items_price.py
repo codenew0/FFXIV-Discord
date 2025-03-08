@@ -4,6 +4,8 @@ from discord.ext import commands
 import os
 import json
 from playwright.async_api import async_playwright
+import requests
+from bs4 import BeautifulSoup
 
 # プロジェクトルートに対する相対パスからファイルパスを解決する
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -58,6 +60,108 @@ class ItemCog(commands.Cog):
                 return item_n
         return None
 
+    # @commands.command(name="item")
+    # async def item_price(self, ctx: commands.Context, *, item: str = None):
+    #     """
+    #     いくらになったの？！（アイテムの価格情報を取る）
+    #     Usage: !item <アイテム名>
+    #     """
+    #     # アイテム名が指定されていない場合はエラーメッセージを送信
+    #     if not item:
+    #         await ctx.reply("フォーマットがちがうよ！！ `!item アイテム名`にしてくれ", mention_author=False)
+    #         return
+    #
+    #     # 指定された日本語のアイテム名からリンクを取得
+    #     item_n = self.find_link_by_item_jp(item)
+    #     if not item_n:
+    #         await ctx.reply("アイテム見つからないぞ！取引できるアイテムしか検索できない", mention_author=False)
+    #         return
+    #
+    #     # 対象のアイテムページと画像URL、スクリーンショットの保存先を定義
+    #     async with ctx.typing():
+    #         item_page = f"https://universalis.app/market/{item_n}"
+    #         item_img = f"https://universalis-ffxiv.github.io/universalis-assets/icon2x/{item_n}.png"
+    #         item_path = "item.png"
+    #
+    #         # Playwrightを使用して対象ページのスクリーンショットを取得する
+    #         async with async_playwright() as p:
+    #             # ヘッドレスモードでChromiumブラウザを起動
+    #             browser = await p.chromium.launch(headless=True)
+    #
+    #             # 新しいブラウザコンテキストを作成
+    #             context = await browser.new_context()
+    #
+    #             # 対象サイト（universalis.app）に必要なCookieを定義して追加する
+    #             cookies = [
+    #                 {
+    #                     "name": "mogboard_last_selected_server",
+    #                     "value": "Japan",
+    #                     "domain": "universalis.app",  # 対象ドメインに合わせる
+    #                     "path": "/"  # 適用パス
+    #                 },
+    #                 {
+    #                     "name": "mogboard_language",
+    #                     "value": "ja",
+    #                     "domain": "universalis.app",
+    #                     "path": "/"
+    #                 },
+    #                 {
+    #                     "name": "includeGst",
+    #                     "value": "no",
+    #                     "domain": "universalis.app",
+    #                     "path": "/"
+    #                 },
+    #                 {
+    #                     "name": "mogboard_homeworld",
+    #                     "value": "no",
+    #                     "domain": "universalis.app",
+    #                     "path": "/"
+    #                 },
+    #                 {
+    #                     "name": "mogboard_server",
+    #                     "value": "Atomos",
+    #                     "domain": "universalis.app",
+    #                     "path": "/"
+    #                 },
+    #                 {
+    #                     "name": "mogboard_timezone",
+    #                     "value": "Asia%2FTokyo",
+    #                     "domain": "universalis.app",
+    #                     "path": "/"
+    #                 }
+    #             ]
+    #             # Cookieをブラウザコンテキストに追加
+    #             await context.add_cookies(cookies)
+    #
+    #             # 新しいページ（タブ）を作成し、アイテムページにアクセス
+    #             page = await context.new_page()
+    #             await page.goto(item_page)
+    #
+    #             # 'div'要素のうち、class属性が"tab"の部分を取得
+    #             element = await page.query_selector('div[class="tab"]')
+    #
+    #             # 指定した領域(element)のスクリーンショットを取得し、保存する
+    #             await element.screenshot(path=item_path)
+    #
+    #             # ブラウザを閉じる
+    #             await browser.close()
+    #
+    #     # DiscordのEmbedを作成
+    #     embed = discord.Embed(
+    #         title=f"{item}",
+    #         color=discord.Color.blue()
+    #     )
+    #
+    #     # 取得したスクリーンショットファイルを添付
+    #     file = discord.File(item_path, filename="item.png")
+    #     # アイテムの画像をサムネイルとして設定
+    #     embed.set_thumbnail(url=item_img)
+    #     # 添付したスクリーンショットをEmbed内に表示
+    #     embed.set_image(url="attachment://item.png")
+    #
+    #     # 作成したEmbedとファイルを返信として送信
+    #     await ctx.reply(embed=embed, file=file, mention_author=False)
+
     @commands.command(name="item")
     async def item_price(self, ctx: commands.Context, *, item):
         """
@@ -75,90 +179,129 @@ class ItemCog(commands.Cog):
             await ctx.reply("アイテム見つからないぞ！取引できるアイテムしか検索できない", mention_author=False)
             return
 
-        # 対象のアイテムページと画像URL、スクリーンショットの保存先を定義
+        # 対象のアイテムページと画像URLを定義
         async with ctx.typing():
             item_page = f"https://universalis.app/market/{item_n}"
             item_img = f"https://universalis-ffxiv.github.io/universalis-assets/icon2x/{item_n}.png"
-            item_path = "item.png"
 
-            # Playwrightを使用して対象ページのスクリーンショットを取得する
-            async with async_playwright() as p:
-                # ヘッドレスモードでChromiumブラウザを起動
-                browser = await p.chromium.launch(headless=True)
+            try:
+                # User-Agentを設定
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
 
-                # 新しいブラウザコンテキストを作成
-                context = await browser.new_context()
+                # Cookieを設定 (指定されたCookieを使用)
+                cookies = {
+                    "mogboard_last_selected_server": "Japan",
+                    "mogboard_language": "ja",
+                    "includeGst": "no",
+                    "mogboard_homeworld": "no",
+                    "mogboard_server": "Atomos",
+                    "mogboard_timezone": "Asia%2FTokyo"
+                }
 
-                # 対象サイト（universalis.app）に必要なCookieを定義して追加する
-                cookies = [
-                    {
-                        "name": "mogboard_last_selected_server",
-                        "value": "Japan",
-                        "domain": "universalis.app",  # 対象ドメインに合わせる
-                        "path": "/"  # 適用パス
-                    },
-                    {
-                        "name": "mogboard_language",
-                        "value": "ja",
-                        "domain": "universalis.app",
-                        "path": "/"
-                    },
-                    {
-                        "name": "includeGst",
-                        "value": "no",
-                        "domain": "universalis.app",
-                        "path": "/"
-                    },
-                    {
-                        "name": "mogboard_homeworld",
-                        "value": "no",
-                        "domain": "universalis.app",
-                        "path": "/"
-                    },
-                    {
-                        "name": "mogboard_server",
-                        "value": "Atomos",
-                        "domain": "universalis.app",
-                        "path": "/"
-                    },
-                    {
-                        "name": "mogboard_timezone",
-                        "value": "Asia%2FTokyo",
-                        "domain": "universalis.app",
-                        "path": "/"
-                    }
-                ]
-                # Cookieをブラウザコンテキストに追加
-                await context.add_cookies(cookies)
+                # ページのHTMLを取得
+                response = requests.get(item_page, headers=headers, cookies=cookies)
+                response.raise_for_status()  # HTTPエラーをチェック
 
-                # 新しいページ（タブ）を作成し、アイテムページにアクセス
-                page = await context.new_page()
-                await page.goto(item_page)
+                # BeautifulSoupでHTMLを解析
+                soup = BeautifulSoup(response.content, "html.parser")
 
-                # 'div'要素のうち、class属性が"tab"の部分を取得
-                element = await page.query_selector('div[class="tab"]')
+                # "MAT"という文字列が含まれているテーブルを探す
+                target_table = None
+                for table in soup.find_all('table'):
+                    # テーブル内のすべてのセルをチェックし、"MAT" が完全一致で含まれるか確認
+                    for cell in table.find_all('th'):
+                        if cell.text.strip() == "Mat":  # スペースを削除して比較
+                            target_table = table
+                            break
+                    if target_table:
+                        break  # テーブルが見つかったらループを抜ける
 
-                # 指定した領域(element)のスクリーンショットを取得し、保存する
-                await element.screenshot(path=item_path)
+                if target_table:
+                    # テーブルの内容を整形 (最初の20行のみ取得)
+                    table_data = []
+                    for i, row in enumerate(target_table.find_all('tr')):
+                        if i >= 20:
+                            break  # 最初の20行を超えたらループを抜ける
+                        row_data = [cell.text.strip() for cell in row.find_all('td')]
+                        table_data.append(row_data)
 
-                # ブラウザを閉じる
-                await browser.close()
+                    # table_dataが空か、すべての行が空の場合、処理をスキップ
+                    if not table_data or all(not row for row in table_data):
+                        await ctx.reply("MAT情報が見つかりましたが、内容は空です。", mention_author=False)
+                        return
 
-        # DiscordのEmbedを作成
-        embed = discord.Embed(
-            title=f"{item}",
-            color=discord.Color.blue()
-        )
+                    # DiscordのEmbedを作成
+                    embed = discord.Embed(
+                        title=f"{item} の価格情報",
+                        color=discord.Color.blue(),
+                        url=item_page  # アイテムページへのリンクを埋め込む
+                    )
 
-        # 取得したスクリーンショットファイルを添付
-        file = discord.File(item_path, filename="item.png")
-        # アイテムの画像をサムネイルとして設定
-        embed.set_thumbnail(url=item_img)
-        # 添付したスクリーンショットをEmbed内に表示
-        embed.set_image(url="attachment://item.png")
+                    # アイテムの画像をサムネイルとして設定
+                    embed.set_thumbnail(url=item_img)
 
-        # 作成したEmbedとファイルを返信として送信
-        await ctx.reply(embed=embed, file=file, mention_author=False)
+                    # ヘッダーを定義
+                    header = "鯖|ワールド|価格|量|全額"
+                    # 各列の最大長を計算
+                    column_widths = [len(word) for word in header.split("|")]  # 初期値としてヘッダーの長さを設定
+
+                    table_string = ""
+                    for row in table_data:
+                        # 行が空の場合、または行のすべてのセルが空/空白の場合、スキップ
+                        if not row or all(not cell.strip() for cell in row):
+                            continue
+
+                        # 指定された列のデータのみを抽出 (0始まりなので、+1必要)
+                        selected_cells = []
+                        try:
+                            selected_cells.append(row[1])  # 2列目
+                            selected_cells.append(row[2])  # 3列目
+                            selected_cells.append(row[5])  # 6列目
+                            selected_cells.append(row[6])  # 7列目
+                            selected_cells.append(row[7])  # 8列目
+                        except IndexError:
+                            # 行の長さが足りない場合、スキップ
+                            continue
+
+                        # 各列の最大長を更新
+                        for i, cell in enumerate(selected_cells):
+                            column_widths[i] = max(column_widths[i], len(cell))
+
+                        table_string += "|".join(selected_cells) + "\n"  # 各セルを | で区切り、行末に改行を追加
+
+                    # フォーマットされたテーブルを作成
+                    formatted_table = ""
+                    formatted_header = ""
+                    header_cells = header.split("|")
+                    for i, width in enumerate(column_widths):
+                        formatted_header += header_cells[i].ljust(width) + "|"
+                    formatted_table += formatted_header[:-1] + "\n"  # ヘッダーを追加し、最後の "|" を削除
+
+                    lines = table_string.splitlines()
+                    for line in lines:
+                        formatted_line = ""
+                        cells = line.split("|")
+                        for i, width in enumerate(column_widths):
+                            formatted_line += cells[i].ljust(width) + " | "
+                        formatted_table += formatted_line[:-1] + "\n"  # 各行を追加し、最後の "|" を削除
+                    if not formatted_table:
+                        await ctx.reply("MAT情報が見つかりましたが、内容は空です。", mention_author=False)
+                        return
+
+                    embed.add_field(name="情報", value=f"```{formatted_table}```", inline=False)
+
+                    # 作成したEmbedを返信として送信
+                    await ctx.reply(embed=embed, mention_author=False)
+
+                else:
+                    await ctx.reply("MAT情報が見つかりませんでした。", mention_author=False)
+
+            except requests.exceptions.RequestException as e:
+                await ctx.reply(f"リクエストエラーが発生しました: {e}", mention_author=False)
+            except Exception as e:
+                await ctx.reply(f"エラーが発生しました: {e}", mention_author=False)
 
 
 async def setup(bot: commands.Bot):

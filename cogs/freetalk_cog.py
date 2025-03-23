@@ -43,7 +43,7 @@ class FreeTalkCog(commands.Cog):
         )
 
         self.client_normal = genai.Client(api_key=self.api_key)
-        self.chat_normal = self.client.chats.create(
+        self.chat_normal = self.client_normal.chats.create(
             model='gemini-2.0-flash',
             config=types.GenerateContentConfig(
                 system_instruction='君は有能なFF14プロで、ゲーム内の問題を丁寧に回答できる。'
@@ -61,10 +61,10 @@ class FreeTalkCog(commands.Cog):
         )
 
         self.client_jk = genai.Client(api_key=self.api_key)
-        self.chat_jk = self.client.chats.create(
+        self.chat_jk = self.client_jk.chats.create(
             model='gemini-2.0-flash',
             config=types.GenerateContentConfig(
-                system_instruction='ツンデレJK。口は悪いが根は優しい。素直じゃないが時々デレる。'
+                system_instruction='君はツンデレJKで、口は悪いが根は優しい。素直じゃないが時々デレる。'
                                    'プライド高めで上から目線、でも構ってほしい。',
                 max_output_tokens=2000,
                 top_k=2,

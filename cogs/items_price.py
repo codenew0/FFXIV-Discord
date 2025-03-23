@@ -141,7 +141,7 @@ class ItemCog(commands.Cog):
                     embed.set_thumbnail(url=item_img)
 
                     # ヘッダーを定義
-                    header = "鯖|ワールド|価格|量|全額"
+                    header = "鯖|DC|価格|量|全額"
                     # 各列の最大長を計算
                     column_widths = [len(word) for word in header.split("|")]  # 初期値としてヘッダーの長さを設定
 
@@ -182,8 +182,9 @@ class ItemCog(commands.Cog):
                         formatted_line = ""
                         cells = line.split("|")
                         for i, width in enumerate(column_widths):
-                            formatted_line += cells[i].ljust(width) + " | "
-                        formatted_table += formatted_line[:-1] + "\n"  # 各行を追加し、最後の "|" を削除
+                            cell_content = cells[i][:4] if i < 2 else cells[i]  # 1列目と2列目を4文字に切る
+                            formatted_line += cell_content [i].ljust(width) + " | "
+                        formatted_table += formatted_line[:-3] + "\n"  # 各行を追加し、最後の " | " を削除
                     if not formatted_table:
                         await ctx.reply("MAT情報が見つかりましたが、内容は空です。", mention_author=False)
                         return

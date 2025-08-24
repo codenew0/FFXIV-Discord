@@ -132,7 +132,7 @@ class ItemCog(commands.Cog):
 
                     # DiscordのEmbedを作成
                     embed = discord.Embed(
-                        title=f"{item} の価格情報",
+                        title=f"{item}",
                         color=discord.Color.blue(),
                         url=item_page  # アイテムページへのリンクを埋め込む
                     )
@@ -154,7 +154,12 @@ class ItemCog(commands.Cog):
                         # 指定された列のデータのみを抽出 (0始まりなので、+1必要)
                         selected_cells = []
                         try:
+                            if len(row[1]) > 5:
+                                row[1] = row[1][:4]
                             selected_cells.append(row[1])  # 2列目
+
+                            if len(row[2]) > 5:
+                                row[2] = row[2][:4]
                             selected_cells.append(row[2])  # 3列目
                             selected_cells.append(row[5])  # 6列目
                             selected_cells.append(row[6])  # 7列目
@@ -174,7 +179,7 @@ class ItemCog(commands.Cog):
                     formatted_header = ""
                     header_cells = header.split("|")
                     for i, width in enumerate(column_widths):
-                        formatted_header += header_cells[i].ljust(width) + "|"
+                        formatted_header += header_cells[i].ljust(width+1) + "|"
                     formatted_table += formatted_header[:-1] + "\n"  # ヘッダーを追加し、最後の "|" を削除
 
                     lines = table_string.splitlines()
@@ -182,14 +187,13 @@ class ItemCog(commands.Cog):
                         formatted_line = ""
                         cells = line.split("|")
                         for i, width in enumerate(column_widths):
-                            cell_content = cells[i][:4] if i < 2 else cells[i]  # 1列目と2列目を4文字に切る
-                            formatted_line += cell_content [i].ljust(width) + " | "
+                            formatted_line += cells[i].ljust(width) + " | "
                         formatted_table += formatted_line[:-3] + "\n"  # 各行を追加し、最後の " | " を削除
                     if not formatted_table:
                         await ctx.reply("MAT情報が見つかりましたが、内容は空です。", mention_author=False)
                         return
 
-                    embed.add_field(name="情報", value=f"```{formatted_table}```", inline=False)
+                    embed.add_field(name="価格情報", value=f"```{formatted_table}```", inline=False)
 
                     # 作成したEmbedを返信として送信
                     await ctx.reply(embed=embed, mention_author=False)

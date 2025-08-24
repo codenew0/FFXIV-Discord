@@ -38,22 +38,24 @@ class TweetCog(commands.Cog):
         # 定期タスクを開始
         self.fetch_tweets_task.start()
 
+    # Modified get_tweet_ids_playwright method to exclude retweets
     async def get_tweet_ids_playwright(self, username, count=2):
         """
         Get tweet IDs using Playwright to bypass X/Twitter's blocking
+        Modified to exclude retweets/reposts
 
         Args:
             username (str): Twitter username (without @)
             count (int): Number of tweet IDs to retrieve (default: 2)
 
         Returns:
-            list: List of tweet IDs
+            list: List of tweet IDs (excluding retweets)
         """
 
         async with async_playwright() as p:
             # Launch browser with options to appear more human-like
             browser = await p.chromium.launch(
-                headless=True,  # Set to False if you want to see the browser
+                headless=True,
                 args=[
                     '--no-sandbox',
                     '--disable-blink-features=AutomationControlled',
@@ -82,8 +84,9 @@ class TweetCog(commands.Cog):
                     'Cache-Control': 'max-age=0'
                 })
 
-                url = f"https://twitter.com/{username}"
-                print(f"Navigating to {url}...")
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                url = f"https://X.com/{username}"
+                print(f"[{timestamp}] Navigating to {url}...")
 
                 # Navigate to the page
                 await page.goto(url, wait_until='networkidle', timeout=30000)
@@ -93,7 +96,6 @@ class TweetCog(commands.Cog):
 
                 # Try to handle login popup or other overlays
                 try:
-                    # Close any modals that might appear
                     close_buttons = await page.query_selector_all('[aria-label="Close"]')
                     for button in close_buttons:
                         await button.click()
@@ -102,67 +104,90 @@ class TweetCog(commands.Cog):
                     pass
 
                 tweet_ids = []
-
-                # Method 1: Look for tweet links in the page
-                # print("Looking for tweet links...")
-                tweet_links = await page.query_selector_all('a[href*="/status/"]')
-
                 seen_ids = set()
-                for link in tweet_links:
+
+                # Method 1: Look for tweet articles and filter out retweets
+                articles = await page.query_selector_all('article[data-testid="tweet"]')
+
+                for article in articles:
+                    if len(tweet_ids) >= count:
+                        break
+
                     try:
-                        href = await link.get_attribute('href')
-                        if href:
-                            match = re.search(r'/status/(\d+)', href)
-                            if match:
-                                tweet_id = match.group(1)
-                                if tweet_id not in seen_ids and len(tweet_ids) < count:
-                                    tweet_ids.append(tweet_id)
-                                    seen_ids.add(tweet_id)
-                                    print(f"Found tweet ID: {tweet_id}")
-                    except:
+                        # Check if this is a retweet by looking for retweet indicators
+                        is_retweet = await self.is_retweet(article)
+
+                        if is_retweet:
+                            print("Skipping retweet...")
+                            continue
+
+                        # Look for status links within each article
+                        status_link = await article.query_selector('a[href*="/status/"]')
+                        if status_link:
+                            href = await status_link.get_attribute('href')
+                            if href:
+                                match = re.search(r'/status/(\d+)', href)
+                                if match:
+                                    tweet_id = match.group(1)
+                                    if tweet_id not in seen_ids:
+                                        tweet_ids.append(tweet_id)
+                                        seen_ids.add(tweet_id)
+                                        print(f"Found original tweet ID: {tweet_id}")
+                    except Exception as e:
+                        print(f"Error processing article: {e}")
                         continue
 
-                # Method 2: Look for article elements with data attributes
+                # Method 2: Fallback - Look for tweet links and filter by URL pattern
                 if len(tweet_ids) < count:
-                    # print("Looking for tweet articles...")
-                    articles = await page.query_selector_all('article[data-testid="tweet"]')
+                    tweet_links = await page.query_selector_all('a[href*="/status/"]')
 
-                    for article in articles[:count]:
+                    for link in tweet_links:
+                        if len(tweet_ids) >= count:
+                            break
+
                         try:
-                            # Look for status links within each article
-                            status_link = await article.query_selector('a[href*="/status/"]')
-                            if status_link:
-                                href = await status_link.get_attribute('href')
-                                if href:
+                            href = await link.get_attribute('href')
+                            if href:
+                                # Check if the link belongs to the target user (not a retweet)
+                                if f"/{username}/status/" in href:
                                     match = re.search(r'/status/(\d+)', href)
                                     if match:
                                         tweet_id = match.group(1)
-                                        if tweet_id not in seen_ids and len(tweet_ids) < count:
+                                        if tweet_id not in seen_ids:
                                             tweet_ids.append(tweet_id)
                                             seen_ids.add(tweet_id)
-                                            # print(f"Found tweet ID from article: {tweet_id}")
+                                            print(f"Found tweet ID from link: {tweet_id}")
                         except:
                             continue
 
                 # Method 3: Scroll and wait for more tweets if needed
                 if len(tweet_ids) < count:
-                    # print("Scrolling to load more tweets...")
+                    print("Scrolling to load more tweets...")
                     await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
                     await page.wait_for_timeout(2000)
 
-                    # Try again after scrolling
-                    new_links = await page.query_selector_all('a[href*="/status/"]')
-                    for link in new_links:
+                    # Try again after scrolling with retweet filtering
+                    new_articles = await page.query_selector_all('article[data-testid="tweet"]')
+                    for article in new_articles:
+                        if len(tweet_ids) >= count:
+                            break
+
                         try:
-                            href = await link.get_attribute('href')
-                            if href:
-                                match = re.search(r'/status/(\d+)', href)
-                                if match:
-                                    tweet_id = match.group(1)
-                                    if tweet_id not in seen_ids and len(tweet_ids) < count:
-                                        tweet_ids.append(tweet_id)
-                                        seen_ids.add(tweet_id)
-                                        # print(f"Found tweet ID after scroll: {tweet_id}")
+                            is_retweet = await self.is_retweet(article)
+                            if is_retweet:
+                                continue
+
+                            status_link = await article.query_selector('a[href*="/status/"]')
+                            if status_link:
+                                href = await status_link.get_attribute('href')
+                                if href and f"/{username}/status/" in href:
+                                    match = re.search(r'/status/(\d+)', href)
+                                    if match:
+                                        tweet_id = match.group(1)
+                                        if tweet_id not in seen_ids:
+                                            tweet_ids.append(tweet_id)
+                                            seen_ids.add(tweet_id)
+                                            print(f"Found tweet ID after scroll: {tweet_id}")
                         except:
                             continue
 
@@ -175,9 +200,82 @@ class TweetCog(commands.Cog):
             finally:
                 await browser.close()
 
+    async def is_retweet(self, article_element):
+        """
+        Check if a tweet article element represents a retweet
+
+        Args:
+            article_element: Playwright element representing a tweet article
+
+        Returns:
+            bool: True if it's a retweet, False otherwise
+        """
+        try:
+            # Method 1: Look for retweet text indicators
+            retweet_indicators = [
+                '[data-testid="socialContext"]',  # "Username retweeted" text
+                'span:has-text("retweeted")',
+                'span:has-text("Retweeted")',
+                'span:has-text("reposted")',
+                'span:has-text("Reposted")',
+                '[aria-label*="retweet"]',
+                '[aria-label*="Retweet"]'
+            ]
+
+            for indicator in retweet_indicators:
+                element = await article_element.query_selector(indicator)
+                if element:
+                    return True
+
+            # Method 2: Check for retweet icon (🔁 or SVG)
+            retweet_icons = await article_element.query_selector_all('svg')
+            for icon in retweet_icons:
+                try:
+                    # Check if the SVG has retweet-related attributes
+                    viewbox = await icon.get_attribute('viewBox')
+                    if viewbox and '24 24' in viewbox:
+                        # Check the path data for retweet icon pattern
+                        path = await icon.query_selector('path')
+                        if path:
+                            d_attr = await path.get_attribute('d')
+                            if d_attr and ('M4.5 3.88' in d_attr or 'M23.77 15.67' in d_attr):
+                                return True
+                except:
+                    continue
+
+            # Method 3: Check if the tweet link doesn't belong to the target user
+            status_link = await article_element.query_selector('a[href*="/status/"]')
+            if status_link:
+                href = await status_link.get_attribute('href')
+                if href and f"/{self.x_user}/status/" not in href:
+                    return True
+
+            # Method 4: Look for "Show this thread" or quote tweet indicators
+            quote_indicators = [
+                '[data-testid="card.layoutLarge.detail"]',
+                '[data-testid="card.layoutSmall.detail"]',
+                'div[role="link"]'
+            ]
+
+            for indicator in quote_indicators:
+                element = await article_element.query_selector(indicator)
+                if element:
+                    # Additional check to see if it's a quote tweet
+                    inner_text = await element.inner_text() if element else ""
+                    if "Show this thread" in inner_text:
+                        return True
+
+            return False
+
+        except Exception as e:
+            print(f"Error checking if retweet: {e}")
+            return False
+
+    # Also modify the Nitter method to exclude retweets
     async def get_tweet_ids_nitter(self, username, count=2):
         """
         Alternative method using Nitter instances with Playwright
+        Modified to exclude retweets
         """
         nitter_instances = [
             'nitter.net',
@@ -195,28 +293,44 @@ class TweetCog(commands.Cog):
                 for instance in nitter_instances:
                     try:
                         url = f"https://{instance}/{username}"
-                        # print(f"Trying Nitter instance: {instance}")
+                        print(f"Trying Nitter instance: {instance}")
 
                         await page.goto(url, timeout=15000)
                         await page.wait_for_timeout(2000)
 
                         tweet_ids = []
+                        seen_ids = set()
 
-                        # Look for tweet links in Nitter
-                        tweet_links = await page.query_selector_all('.tweet-link, a[href*="/status/"]')
+                        # Look for tweet containers in Nitter
+                        tweet_containers = await page.query_selector_all('.timeline-item')
 
-                        for link in tweet_links[:count]:
+                        for container in tweet_containers:
+                            if len(tweet_ids) >= count:
+                                break
+
                             try:
-                                href = await link.get_attribute('href')
-                                if href:
-                                    match = re.search(r'/status/(\d+)', href)
-                                    if match:
-                                        tweet_ids.append(match.group(1))
+                                # Check if this is a retweet in Nitter
+                                retweet_indicator = await container.query_selector('.retweet-header, .quote-link')
+                                if retweet_indicator:
+                                    print("Skipping retweet in Nitter...")
+                                    continue
+
+                                # Look for the tweet link
+                                tweet_link = await container.query_selector('a[href*="/status/"]')
+                                if tweet_link:
+                                    href = await tweet_link.get_attribute('href')
+                                    if href and f"/{username}/status/" in href:
+                                        match = re.search(r'/status/(\d+)', href)
+                                        if match:
+                                            tweet_id = match.group(1)
+                                            if tweet_id not in seen_ids:
+                                                tweet_ids.append(tweet_id)
+                                                seen_ids.add(tweet_id)
                             except:
                                 continue
 
                         if tweet_ids:
-                            # print(f"Successfully got {len(tweet_ids)} IDs from {instance}")
+                            print(f"Successfully got {len(tweet_ids)} original tweet IDs from {instance}")
                             return tweet_ids[:count]
 
                     except Exception as e:
@@ -252,58 +366,6 @@ class TweetCog(commands.Cog):
         with open(self.data_file_tweets, "w") as f:
             json.dump(tweets_id, f, indent=4)
 
-    async def get_last_tweets_id_old(self):
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-
-            # 指定のTwitter（X）アカウントページにアクセス
-            await page.goto("https://x.com/FF_XIV_JP", timeout=60000)
-
-            # ツイートリンク（/FF_XIV_JP/status/で始まる）の読み込みを待つ
-            await page.wait_for_selector("a[href^='/FF_XIV_JP/status/']")
-
-            # ツイートリンクを2つ探す（末尾が数字のみのものを対象）
-            links = await page.query_selector_all("a[href^='/FF_XIV_JP/status/']")
-            if links is None:
-                print("指定のリンクが見つかりませんでした。")
-                await browser.close()
-                return None
-
-            print(links)
-            valid_links = []
-
-            for link in links:
-                href = await link.get_attribute("href")
-                if href and re.match(r"^/FF_XIV_JP/status/\d+$", href):  # 数字のみで終わるリンクのみ取得
-                    valid_links.append(link)
-                    print(valid_links)
-
-            if len(valid_links) < 2:
-                print("ツイートが2件未満です。")
-                await browser.close()
-                return None
-
-            tweet_data = []
-            for link in valid_links[:2]:  # 最初の2つを取得
-                href = await link.get_attribute("href")
-                time_element = await link.query_selector("time")
-                datetime_value = await time_element.get_attribute("datetime") if time_element else None
-
-                if href and datetime_value:
-                    tweet_id = href.rsplit('/', 1)[-1]
-                    tweet_data.append((tweet_id, datetime_value))
-
-            await browser.close()
-
-            if len(tweet_data) < 2:
-                print("有効なツイートが2件取得できませんでした。")
-                return None
-
-            # 日付で比較し、新しい方のIDを返す
-            tweet_data.sort(key=lambda x: datetime.fromisoformat(x[1]), reverse=True)
-            return tweet_data[0][0]
-
     @commands.command(name="X")
     async def last_tweets(self, ctx: commands.Context, count: int = 1):
         """
@@ -323,24 +385,8 @@ class TweetCog(commands.Cog):
                 for i, tweet_id in enumerate(tweet_ids, 1):
                     link = f"https://x.com/{self.x_user}/status/{tweet_id}"
                     messages.append(f"ツイート {i}: {link}")
-
                 await ctx.reply("\n".join(messages))
-
-                # print(f"\n✅ Successfully found {len(tweet_ids)} tweet ID(s):")
-                # print("-" * 40)
-                # for i, tweet_id in enumerate(tweet_ids, 1):
-                #     print(f"Tweet {i} ID: {tweet_id}")
-                #     print(f"URL: https://twitter.com/{username}/status/{tweet_id}")
-                #     print("-" * 40)
             else:
-                # print("\n❌ No tweet IDs found. Possible reasons:")
-                # print("1. Account is private or suspended")
-                # print("2. Account doesn't exist")
-                # print("3. Twitter/X has updated their structure")
-                # print("4. Network connectivity issues")
-                # print("5. All methods were blocked")
-                # print("\nTip: Try changing the username or running with headless=False to debug")
-
                 await ctx.reply("ツイートの取得に失敗しました。")
 
     @tasks.loop(minutes=30)
@@ -348,26 +394,56 @@ class TweetCog(commands.Cog):
         """
         定期的に最新ツイートをチェックし、新しいツイートがあれば指定のDiscordチャンネルに通知を送信するタスク。
         30分ごとに実行されます。
+        ピン留めされたツイートを除外し、真に新しいツイートのみを検出します。
         """
         # 通知先のチャンネルを取得
         channel = self.bot.get_channel(self.channel_id)
         self.sent_tweets = self.load_sent_tweets()
 
-        # 最新ツイートIDを取得
-        tweet_ids = await self.get_tweet_ids_playwright(self.x_user, 1)
+        # 複数のツイートIDを取得（ピン留めツイートを考慮して多めに取得）
+        tweet_ids = await self.get_tweet_ids_playwright(self.x_user, 3)
         if not tweet_ids:
             print("\nMain method failed, trying Nitter instances...")
-            tweet_ids = await self.get_tweet_ids_nitter(self.x_user, 1)
+            tweet_ids = await self.get_tweet_ids_nitter(self.x_user, 3)
+            if not tweet_ids:
+                print("Failed to fetch any tweet IDs")
+                return
 
-        if tweet_ids[0] in self.sent_tweets:
-            # 既に送信済みの場合は、リストの最初の要素を更新して終了
-            self.sent_tweets[0] = tweet_ids[0]
+        # 送信済みツイートがない場合は、最初のツイートIDを保存して終了
+        if not self.sent_tweets:
+            self.save_sent_tweets([tweet_ids[0]])
             return
 
+        # 最後に送信したツイートIDを取得
+        last_sent_tweet_id = self.sent_tweets[0] if self.sent_tweets else None
+
+        # 新しいツイートを探す（送信済みリストにないもので、IDが最後に送信したものより大きいもの）
+        new_tweets = []
+        for tweet_id in tweet_ids:
+            # ツイートIDは時系列順なので、数値として比較できる
+            if tweet_id not in self.sent_tweets:
+                if last_sent_tweet_id is None or int(tweet_id) > int(last_sent_tweet_id):
+                    new_tweets.append(tweet_id)
+
+        if not new_tweets:
+            # 新しいツイートがない場合
+            return
+
+        # 最新の新しいツイート（IDが最大のもの）を取得
+        newest_tweet_id = max(new_tweets, key=lambda x: int(x))
+
         # 新しいツイートがあった場合、通知メッセージを送信
-        await channel.send(f"新しいツイートがあるよ～ {self.x_user}: https://twitter.com/{self.x_user}/status/{tweet_ids[0]}")
-        # 送信済みツイートIDを保存
-        self.save_sent_tweets([tweet_ids[0]])
+        await channel.send(
+            f"新しいツイートがあるよ～ {self.x_user}: https://X.com/{self.x_user}/status/{newest_tweet_id}")
+
+        # 送信済みツイートIDを更新（最新のものを先頭に追加し、古いものは制限）
+        updated_sent_tweets = [newest_tweet_id]
+        # 既存の送信済みリストから重複を除いて最大10件まで保持
+        for tweet_id in self.sent_tweets:
+            if tweet_id != newest_tweet_id and len(updated_sent_tweets) < 10:
+                updated_sent_tweets.append(tweet_id)
+
+        self.save_sent_tweets(updated_sent_tweets)
 
     @fetch_tweets_task.before_loop
     async def before_fetch_tweets(self):

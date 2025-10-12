@@ -6,8 +6,11 @@ import json
 import asyncio
 import secrets
 
+base_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(base_dir, "config.json")
+
 # config.jsonから設定を読み込む
-with open("config.json", "r") as f:
+with open(config_path, "r") as f:
     config = json.load(f)
 
 # Discordのトークンと通知先チャンネルIDを取得
@@ -34,8 +37,9 @@ async def load_extensions():
     base_cog.pyおよびファイル名が"__"で始まるファイルは除外します。
     """
     cogs_folder = "./cogs"
-    print("拡張機能をロード中:", cogs_folder)
-    for filename in os.listdir(cogs_folder):
+    cogs_path = os.path.join(base_dir, cogs_folder)
+    print("拡張機能をロード中:", cogs_path)
+    for filename in os.listdir(cogs_path):
         if filename.endswith(".py") and filename != "base_cog.py" and not filename.startswith("__"):
             extension = f"cogs.{filename[:-3]}"
             try:
@@ -53,9 +57,9 @@ async def on_ready():
     指定のチャンネルにオンライン通知を送信し、登録されているコマンド一覧をデバッグ出力します。
     """
     print(f"{bot.user} としてログインしました")
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel:
-        await channel.send("botオンライン!")
+    # channel = bot.get_channel(CHANNEL_ID)
+    # if channel:
+    #     await channel.send("botオンライン!")
     # 登録されているすべてのコマンドをデバッグ出力
     print("登録されているコマンド:")
     for cmd in bot.commands:

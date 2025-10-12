@@ -1,15 +1,19 @@
 # cogs/freetalk_cog.py
 import json
+import os
 from discord.ext import commands
 from google import genai
 from google.genai import types
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+config_path = os.path.join(BASE_DIR, "config.json")
 
 def load_api():
     """
     config.jsonからAI関連のAPIキーとURLを読み込み、
     それらを返す関数。
     """
-    with open("config.json", "r") as f:
+    with open(config_path, "r") as f:
         config = json.load(f)
         api_key = config["AI_API_KEY"]
         api_url = config["AI_API_URL"]

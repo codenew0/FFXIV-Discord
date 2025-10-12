@@ -41,6 +41,33 @@ class ItemCog(commands.Cog):
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
+    def reload_items(self):
+        """
+        アイテムデータを再読み込みする関数。
+        他のCogから呼び出されることを想定。
+        """
+        self.items = self.load_items()
+        return len(self.items)
+
+    @commands.command(name="item_reload", aliases=["reload"])
+    @commands.has_permissions(administrator=True)
+    async def reload_items_command(self, ctx: commands.Context):
+        """
+        アイテムデータを再読み込みします
+        Usage: !item_reload
+        Aliases: !reload
+        """
+        try:
+            count = self.reload_items()
+            embed = discord.Embed(
+                title="✅ アイテムデータ再読み込み完了",
+                description=f"合計 **{count}件** のアイテムを読み込みました。",
+                color=discord.Color.green()
+            )
+            await ctx.reply(embed=embed, mention_author=False)
+        except Exception as e:
+            await ctx.reply(f"❌ 再読み込み中にエラーが発生しました: {e}", mention_author=False)
+
     def find_item_by_name(self, search_value):
         """
         指定されたアイテム名（日本語または英語）と一致するアイテムを検索する。

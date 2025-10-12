@@ -184,6 +184,11 @@ class ItemUpdateCog(commands.Cog):
             with open(JSON_FILE, "w", encoding="utf-8") as f:
                 json.dump(sorted_items, f, ensure_ascii=False, indent=4)
 
+            # ItemCogのデータを再読み込み
+            item_cog = self.bot.get_cog("ItemCog")
+            if item_cog:
+                item_cog.reload_items()
+
             # 完了メッセージ
             final_embed = discord.Embed(
                 title="✅ アイテムデータベース更新完了",
@@ -191,6 +196,7 @@ class ItemUpdateCog(commands.Cog):
                 color=discord.Color.green()
             )
             final_embed.add_field(name="更新後のアイテム数", value=f"{len(sorted_items)}件", inline=True)
+            final_embed.add_field(name="🔄 状態", value="アイテム検索に即座に反映されました", inline=True)
             
             await progress_msg.delete()
             await status_msg.edit(content=None, embed=final_embed)

@@ -212,42 +212,58 @@ class ItemCog(commands.Cog):
             embed.set_thumbnail(url=item_img)
 
             # テーブルを整形
-            # 各列の最大幅を計算
+            # 各列の最大幅を計算（日本語文字を考慮）
+            def get_display_width(text):
+                """文字列の表示幅を計算（日本語は2、英数字は1としてカウント）"""
+                width = 0
+                for char in text:
+                    if ord(char) > 127:  # 日本語などの全角文字
+                        width += 2
+                    else:  # 英数字などの半角文字
+                        width += 1
+                return width
+
             max_widths = {
-                "server": max(len(row["server"]) for row in table_rows),
-                "dc": max(len(row["dc"]) for row in table_rows),
-                "price": max(len(row["price"]) for row in table_rows),
-                "quantity": max(len(row["quantity"]) for row in table_rows),
-                "total": max(len(row["total"]) for row in table_rows)
+                "server": max(get_display_width(row["server"]) for row in table_rows),
+                "dc": max(get_display_width(row["dc"]) for row in table_rows),
+                "price": max(get_display_width(row["price"]) for row in table_rows),
+                "quantity": max(get_display_width(row["quantity"]) for row in table_rows),
+                "total": max(get_display_width(row["total"]) for row in table_rows)
             }
-            
+
             # ヘッダーの幅も考慮
             headers = {"server": "鯖", "dc": "DC", "price": "価格", "quantity": "量", "total": "合計"}
             for key in max_widths:
-                max_widths[key] = max(max_widths[key], len(headers[key]))
+                max_widths[key] = max(max_widths[key], get_display_width(headers[key]))
 
             # テーブルを構築
             table_lines = []
-            
-            # ヘッダー行
+
+            # ヘッダー行（日本語の表示幅を考慮してパディング）
+            def pad_text(text, width):
+                """テキストを指定した表示幅にパディング"""
+                current_width = get_display_width(text)
+                padding = width - current_width
+                return text + " " * padding
+
             header_line = (
-                f"{headers['server']:<{max_widths['server']}} | "
-                f"{headers['dc']:<{max_widths['dc']}} | "
-                f"{headers['price']:>{max_widths['price']}} | "
-                f"{headers['quantity']:>{max_widths['quantity']}} | "
-                f"{headers['total']:>{max_widths['total']}}"
+                f"{pad_text(headers['server'], max_widths['server'])} | "
+                f"{pad_text(headers['dc'], max_widths['dc'])} | "
+                f"{pad_text(headers['price'], max_widths['price'])} | "
+                f"{pad_text(headers['quantity'], max_widths['quantity'])} | "
+                f"{pad_text(headers['total'], max_widths['total'])}"
             )
             table_lines.append(header_line)
-            table_lines.append("-" * len(header_line))
-            
+            table_lines.append("-" * get_display_width(header_line))
+
             # データ行
             for row in table_rows:
                 line = (
-                    f"{row['server']:<{max_widths['server']}} | "
-                    f"{row['dc']:<{max_widths['dc']}} | "
-                    f"{row['price']:>{max_widths['price']}} | "
-                    f"{row['quantity']:>{max_widths['quantity']}} | "
-                    f"{row['total']:>{max_widths['total']}}"
+                    f"{pad_text(row['server'], max_widths['server'])} | "
+                    f"{pad_text(row['dc'], max_widths['dc'])} | "
+                    f"{pad_text(row['price'], max_widths['price'])} | "
+                    f"{pad_text(row['quantity'], max_widths['quantity'])} | "
+                    f"{pad_text(row['total'], max_widths['total'])}"
                 )
                 table_lines.append(line)
 
@@ -327,6 +343,21 @@ class ItemCog(commands.Cog):
         
         # 部分一致の場合
         elif match_type == "partial":
+            # 候補が1つだけの場合は自動的に表示
+            if len(results) == 1:
+                item_id, item_jp, item_en = results[0]
+                # 部分一致で見つかったことを示すメッセージを送信
+                info_msg = await ctx.send(f"🔍 「{item}」→「**{item_jp}**」の価格情報を取得中...")
+                async with ctx.typing():
+                    await self.show_price_info(ctx, item_id, item_jp, item_en)
+                # 情報メッセージを削除
+                try:
+                    await info_msg.delete()
+                except:
+                    pass
+                return
+            
+            # 候補が複数ある場合はリスト表示
             # 候補が多すぎる場合は上位20件のみ表示
             max_display = 20
             display_results = results[:max_display]

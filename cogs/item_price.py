@@ -6,7 +6,6 @@ import json
 import requests
 from bs4 import BeautifulSoup
 
-
 # プロジェクトルートに対する相対パスからファイルパスを解決する
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 ITEMS_FILE = os.path.join(BASE_DIR, "tradable_items.json")
@@ -49,7 +48,7 @@ class ItemCog(commands.Cog):
         self.items = self.load_items()
         return len(self.items)
 
-    @commands.command(name="item_reload", aliases=["reload"])
+    @commands.command(name="item_reload")
     @commands.has_permissions(administrator=True)
     async def reload_items_command(self, ctx: commands.Context):
         """
@@ -88,27 +87,27 @@ class ItemCog(commands.Cog):
             return "none", None
 
         search_lower = search_value.lower()
-        
+
         # 完全一致を優先
         for item_id, details in self.items.items():
             item_jp = details.get("item_jp", "")
             item_en = details.get("item_en", "")
-            
+
             if item_jp == search_value or item_en.lower() == search_lower:
                 return "exact", (item_id, item_jp, item_en)
-        
+
         # 部分一致を検索
         matches = []
         for item_id, details in self.items.items():
             item_jp = details.get("item_jp", "")
             item_en = details.get("item_en", "")
-            
+
             if search_value in item_jp or search_lower in item_en.lower():
                 matches.append((item_id, item_jp, item_en))
-        
+
         if matches:
             return "partial", matches
-        
+
         return "none", None
 
     def format_number(self, num_str):
@@ -128,6 +127,22 @@ class ItemCog(commands.Cog):
             return f"{num:,}"
         except:
             return num_str
+
+    def get_display_width(self, text):
+        """文字列の表示幅を計算（日本語は2、英数字は1としてカウント）"""
+        width = 0
+        for char in text:
+            if ord(char) > 127:  # 日本語などの全角文字
+                width += 2
+            else:  # 英数字などの半角文字
+                width += 1
+        return width
+
+    def pad_text(self, text, width):
+        """テキストを指定した表示幅にパディング"""
+        current_width = self.get_display_width(text)
+        padding = width - current_width
+        return text + " " * padding
 
     async def show_price_info(self, ctx, item_id, item_jp, item_en):
         """
@@ -195,11 +210,11 @@ class ItemCog(commands.Cog):
             for i, row in enumerate(target_table.find_all('tr')[1:]):  # ヘッダー行をスキップ
                 if i >= 15:
                     break
-                
+
                 cells = row.find_all('td')
                 if len(cells) < 8:
                     continue
-                
+
                 # 必要なデータを抽出
                 try:
                     server = cells[1].text.strip()[:5]  # サーバー名（最大5文字）
@@ -207,7 +222,7 @@ class ItemCog(commands.Cog):
                     price = self.format_number(cells[5].text.strip())  # 価格
                     quantity = cells[6].text.strip()  # 数量
                     total = self.format_number(cells[7].text.strip())  # 合計金額
-                    
+
                     table_rows.append({
                         "server": server,
                         "dc": dc,
@@ -240,68 +255,52 @@ class ItemCog(commands.Cog):
 
             # テーブルを整形
             # 各列の最大幅を計算（日本語文字を考慮）
-            def get_display_width(text):
-                """文字列の表示幅を計算（日本語は2、英数字は1としてカウント）"""
-                width = 0
-                for char in text:
-                    if ord(char) > 127:  # 日本語などの全角文字
-                        width += 2
-                    else:  # 英数字などの半角文字
-                        width += 1
-                return width
-
             max_widths = {
-                "server": max(get_display_width(row["server"]) for row in table_rows),
-                "dc": max(get_display_width(row["dc"]) for row in table_rows),
-                "price": max(get_display_width(row["price"]) for row in table_rows),
-                "quantity": max(get_display_width(row["quantity"]) for row in table_rows),
-                "total": max(get_display_width(row["total"]) for row in table_rows)
+                "server": max(self.get_display_width(row["server"]) for row in table_rows),
+                "dc": max(self.get_display_width(row["dc"]) for row in table_rows),
+                "price": max(self.get_display_width(row["price"]) for row in table_rows),
+                "quantity": max(self.get_display_width(row["quantity"]) for row in table_rows),
+                "total": max(self.get_display_width(row["total"]) for row in table_rows)
             }
 
             # ヘッダーの幅も考慮
             headers = {"server": "鯖", "dc": "DC", "price": "価格", "quantity": "量", "total": "合計"}
             for key in max_widths:
-                max_widths[key] = max(max_widths[key], get_display_width(headers[key]))
+                max_widths[key] = max(max_widths[key], self.get_display_width(headers[key]))
 
             # テーブルを構築
             table_lines = []
 
             # ヘッダー行（日本語の表示幅を考慮してパディング）
-            def pad_text(text, width):
-                """テキストを指定した表示幅にパディング"""
-                current_width = get_display_width(text)
-                padding = width - current_width
-                return text + " " * padding
-
             header_line = (
-                f"{pad_text(headers['server'], max_widths['server'])} | "
-                f"{pad_text(headers['dc'], max_widths['dc'])} | "
-                f"{pad_text(headers['price'], max_widths['price'])} | "
-                f"{pad_text(headers['quantity'], max_widths['quantity'])} | "
-                f"{pad_text(headers['total'], max_widths['total'])}"
+                f"{self.pad_text(headers['server'], max_widths['server'])} | "
+                f"{self.pad_text(headers['dc'], max_widths['dc'])} | "
+                f"{self.pad_text(headers['price'], max_widths['price'])} | "
+                f"{self.pad_text(headers['quantity'], max_widths['quantity'])} | "
+                f"{self.pad_text(headers['total'], max_widths['total'])}"
             )
             table_lines.append(header_line)
-            table_lines.append("-" * get_display_width(header_line))
+            table_lines.append("-" * self.get_display_width(header_line))
 
             # データ行
             for row in table_rows:
                 line = (
-                    f"{pad_text(row['server'], max_widths['server'])} | "
-                    f"{pad_text(row['dc'], max_widths['dc'])} | "
-                    f"{pad_text(row['price'], max_widths['price'])} | "
-                    f"{pad_text(row['quantity'], max_widths['quantity'])} | "
-                    f"{pad_text(row['total'], max_widths['total'])}"
+                    f"{self.pad_text(row['server'], max_widths['server'])} | "
+                    f"{self.pad_text(row['dc'], max_widths['dc'])} | "
+                    f"{self.pad_text(row['price'], max_widths['price'])} | "
+                    f"{self.pad_text(row['quantity'], max_widths['quantity'])} | "
+                    f"{self.pad_text(row['total'], max_widths['total'])}"
                 )
                 table_lines.append(line)
 
             table_text = "\n".join(table_lines)
-            
+
             embed.add_field(
                 name="📈 マーケット価格（最安値順）",
                 value=f"```\n{table_text}\n```",
                 inline=False
             )
-            
+
             # 最安値情報を追加
             lowest = table_rows[0]
             embed.add_field(
@@ -309,7 +308,7 @@ class ItemCog(commands.Cog):
                 value=f"**{lowest['price']}** Gil ({lowest['server']})",
                 inline=True
             )
-            
+
             # 統計情報を追加（上位5件の平均）
             top5_prices = [int(row['price'].replace(',', '')) for row in table_rows[:5]]
             avg_price = sum(top5_prices) // len(top5_prices)
@@ -360,14 +359,14 @@ class ItemCog(commands.Cog):
 
         # 指定されたアイテム名から検索
         match_type, results = self.find_item_by_name(item)
-        
+
         # 完全一致の場合
         if match_type == "exact":
             item_id, item_jp, item_en = results
             async with ctx.typing():
                 await self.show_price_info(ctx, item_id, item_jp, item_en)
             return
-        
+
         # 部分一致の場合
         elif match_type == "partial":
             # 候補が1つだけの場合は自動的に表示
@@ -383,18 +382,18 @@ class ItemCog(commands.Cog):
                 except:
                     pass
                 return
-            
+
             # 候補が複数ある場合はリスト表示
             # 候補が多すぎる場合は上位20件のみ表示
             max_display = 20
             display_results = results[:max_display]
-            
+
             embed = discord.Embed(
                 title="🔍 複数のアイテムが見つかりました",
                 description=f"「{item}」に一致するアイテムが**{len(results)}件**見つかりました。\n以下から選択してください。",
                 color=discord.Color.blue()
             )
-            
+
             # 候補をリストアップ
             candidate_list = []
             for i, (item_id, item_jp, item_en) in enumerate(display_results, 1):
@@ -405,36 +404,36 @@ class ItemCog(commands.Cog):
                     candidate_list.append(f"`{i}.` **{item_jp}**")
                 else:
                     candidate_list.append(f"`{i}.` **{item_en}**")
-            
+
             # 候補リストを分割して表示（Embedのフィールド制限対策）
             chunk_size = 10
             for i in range(0, len(candidate_list), chunk_size):
                 chunk = candidate_list[i:i + chunk_size]
-                field_name = f"候補アイテム ({i+1}～{min(i+chunk_size, len(candidate_list))})"
+                field_name = f"候補アイテム ({i + 1}～{min(i + chunk_size, len(candidate_list))})"
                 embed.add_field(
                     name=field_name,
                     value="\n".join(chunk),
                     inline=False
                 )
-            
+
             if len(results) > max_display:
                 embed.add_field(
                     name="ℹ️ 注意",
                     value=f"候補が多いため、上位{max_display}件のみ表示しています。\nより具体的な名前で検索してください。",
                     inline=False
                 )
-            
+
             embed.add_field(
                 name="💡 ヒント",
                 value="完全なアイテム名で再度検索してください。\n例: `!item アイスシャード`",
                 inline=False
             )
-            
+
             embed.set_footer(text=f"検索ワード: {item}")
-            
+
             await ctx.reply(embed=embed, mention_author=False)
             return
-        
+
         # 見つからない場合
         else:
             embed = discord.Embed(

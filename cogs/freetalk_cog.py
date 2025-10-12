@@ -1,164 +1,252 @@
 # cogs/freetalk_cog.py
 import json
 import os
+from typing import Optional, Dict
 from discord.ext import commands
 from google import genai
 from google.genai import types
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-config_path = os.path.join(BASE_DIR, "config.json")
 
-def load_api():
-    """
-    config.jsonからAI関連のAPIキーとURLを読み込み、
-    それらを返す関数。
-    """
-    with open(config_path, "r") as f:
-        config = json.load(f)
-        api_key = config["AI_API_KEY"]
-        api_url = config["AI_API_URL"]
+class ConfigLoader:
+    """設定ファイルの読み込みを管理するクラス"""
+    
+    def __init__(self, config_filename: str = "config.json"):
+        base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+        self.config_path = os.path.join(base_dir, config_filename)
+    
+    def load_api_credentials(self) -> tuple[str, str]:
+        """
+        config.jsonからAI関連のAPIキーとURLを読み込む
+        
+        Returns:
+            tuple: (api_key, api_url)
+        
+        Raises:
+            FileNotFoundError: 設定ファイルが見つからない場合
+            KeyError: 必要なキーが設定ファイルに存在しない場合
+        """
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                api_key = config["AI_API_KEY"]
+                api_url = config["AI_API_URL"]
+            return api_key, api_url
+        except FileNotFoundError:
+            raise FileNotFoundError(f"設定ファイルが見つかりません: {self.config_path}")
+        except KeyError as e:
+            raise KeyError(f"設定ファイルに必要なキーがありません: {e}")
 
-    return api_key, api_url
+
+class ChatPersonality:
+    """チャットの性格設定を管理するクラス"""
+    
+    YANKEE = {
+        "name": "ヤンキー",
+        "system_instruction": "君はヤンキーだ！ヤンキーの喋り方で話す。威勢がよく、少し荒っぽいが根は悪くない。",
+        "empty_message": "何か話したいことあんのか？！",
+        "use_search": False
+    }
+    
+    NORMAL = {
+        "name": "丁寧",
+        "system_instruction": (
+            "君は有能なFF14のプロプレイヤーで、ゲーム内の問題を丁寧に回答できる。"
+            "他の幅広い知識も持っており、親切で分かりやすく説明する。"
+        ),
+        "empty_message": "どうされましたか？何かお困りですか？",
+        "use_search": True
+    }
+    
+    TSUNDERE_JK = {
+        "name": "ツンデレJK",
+        "system_instruction": (
+            "君はツンデレJKで、口は悪いが根は優しい。素直じゃないが時々デレる。"
+            "プライド高めで上から目線だけど、本当は構ってほしい。"
+            "語尾に「〜なんだからね！」「べ、別に...」などをつける。"
+        ),
+        "empty_message": "べ、別に話したいわけじゃないんだからね！",
+        "use_search": True
+    }
+
 
 class FreeTalkCog(commands.Cog):
     """
-    フリートークを行うためのCogクラス。
-    AI(GenAI)を利用してユーザーからのメッセージに
-    ヤンキーの口調で返信する。
+    AIを使ったフリートーク機能を提供するCogクラス
+    複数の性格モードでユーザーと対話できる
     """
+    
     def __init__(self, bot: commands.Bot):
         """
-        FreeTalkCogのコンストラクタ。
-        config.jsonからAPIキーとURLを読み込み、
-        gemini-2.0-flashモデルでチャットを初期化する。
+        FreeTalkCogのコンストラクタ
+        
+        Args:
+            bot: Botのインスタンス
         """
         self.bot = bot
-        self.api_key, self.api_url = load_api()
-        self.client = genai.Client(api_key=self.api_key)
-        self.chat = self.client.chats.create(
-            model='gemini-2.0-flash',
-            config=types.GenerateContentConfig(
-                system_instruction='君はヤンキーだ！ヤンキーの喋り方で',
-                max_output_tokens=2000,
-                top_k=2,
-                top_p=0.5,
-                temperature=0.5
-            )
-        )
-
-        self.client_normal = genai.Client(api_key=self.api_key)
-        self.chat_normal = self.client_normal.chats.create(
-            model='gemini-2.0-flash',
-            config=types.GenerateContentConfig(
-                system_instruction='君は有能なFF14プロで、ゲーム内の問題を丁寧に回答できる。'
-                                   '他の知識もたくさん持ってる',
-                max_output_tokens=2000,
-                top_k=2,
-                top_p=0.5,
-                temperature=0.5,
-                tools=[
-                    types.Tool(
-                        google_search=types.GoogleSearch()
-                    )
-                ]
-            )
-        )
-
-        self.client_jk = genai.Client(api_key=self.api_key)
-        self.chat_jk = self.client_jk.chats.create(
-            model='gemini-2.0-flash',
-            config=types.GenerateContentConfig(
-                system_instruction='君はツンデレJKで、口は悪いが根は優しい。素直じゃないが時々デレる。'
-                                   'プライド高めで上から目線、でも構ってほしい。',
-                max_output_tokens=2000,
-                top_k=2,
-                top_p=0.5,
-                temperature=0.5,
-                tools=[
-                    types.Tool(
-                        google_search=types.GoogleSearch()
-                    )
-                ]
-            )
-        )
-
-    def auto_chat(self, chat, user_message: str):
+        self.config_loader = ConfigLoader()
+        
+        try:
+            self.api_key, self.api_url = self.config_loader.load_api_credentials()
+        except (FileNotFoundError, KeyError) as e:
+            print(f"❌ 設定読み込みエラー: {e}")
+            raise
+        
+        # 各性格のチャットを初期化
+        self.chats: Dict[str, any] = {
+            "yankee": self._create_chat(ChatPersonality.YANKEE),
+            "normal": self._create_chat(ChatPersonality.NORMAL),
+            "tsundere": self._create_chat(ChatPersonality.TSUNDERE_JK)
+        }
+    
+    def _create_chat(self, personality: Dict) -> any:
         """
-        ユーザーからのメッセージ(user_message)を
-        AIに送り、返信テキストを返す関数。
+        指定された性格設定でチャットを作成
+        
+        Args:
+            personality: 性格設定の辞書
+        
+        Returns:
+            作成されたチャットオブジェクト
         """
-        # AIチャットモデルにメッセージを送信し、返信を受け取る
-        response = chat.send_message(user_message)
-        return response.text
-
-    @commands.command(name="ftn")
-    async def freetalk_normal(self, ctx: commands.Context, *, message: str = None):
+        client = genai.Client(api_key=self.api_key)
+        
+        config_params = {
+            "system_instruction": personality["system_instruction"],
+            "max_output_tokens": 2000,
+            "top_k": 2,
+            "top_p": 0.5,
+            "temperature": 0.5
+        }
+        
+        # Google検索ツールを使用する場合
+        if personality.get("use_search", False):
+            config_params["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        
+        return client.chats.create(
+            model='gemini-2.0-flash',
+            config=types.GenerateContentConfig(**config_params)
+        )
+    
+    async def _send_ai_message(
+        self, 
+        ctx: commands.Context, 
+        chat: any, 
+        message: str,
+        empty_message: str
+    ) -> None:
         """
-        普通に丁寧に話しましょう！
-        Usage: !ftn <メッセージ>
+        AIにメッセージを送信して応答を返す共通処理
+        
+        Args:
+            ctx: コマンドのコンテキスト
+            chat: 使用するチャットオブジェクト
+            message: ユーザーのメッセージ
+            empty_message: メッセージが空の場合の返信
         """
         if not message:
-            await ctx.reply("どうしました？")
-
-        # 「 typing() 」で思考中のステータスを表示
+            await ctx.reply(empty_message)
+            return
+        
         async with ctx.typing():
-            ai_reply = self.auto_chat(self.chat_normal, message)
-            if not ai_reply:
-                # 応答が得られなかった場合
-                await ctx.reply("503 Server Error: Service Unavailable")
-            else:
-                # AIの返信をユーザーへ返信
+            try:
+                response = chat.send_message(message)
+                ai_reply = response.text
+                
+                if not ai_reply:
+                    await ctx.reply("❌ AIからの応答が取得できませんでした。")
+                    return
+                
+                # Discord の文字数制限対策
                 if len(ai_reply) > 2000:
-                    ai_reply = ai_reply[:1900] + "..."
+                    ai_reply = ai_reply[:1900] + "\n\n...(文字数制限のため省略)"
+                
                 await ctx.reply(ai_reply)
-
-    @commands.command(name="ft")
-    async def freetalk(self, ctx: commands.Context, *, message: str = None):
+                
+            except Exception as e:
+                print(f"❌ AI応答エラー: {e}")
+                await ctx.reply("❌ エラーが発生しました。もう一度お試しください。")
+    
+    @commands.command(name="ft", aliases=["freetalk"])
+    async def freetalk_yankee(self, ctx: commands.Context, *, message: Optional[str] = None):
         """
-        このおれと話してみよう！！
-        Usage: !ft <メッセージ>
+        🔥 ヤンキー口調で会話します
+        
+        使い方: !ft <メッセージ>
+        例: !ft おはよう
         """
-        if not message:
-            await ctx.reply("何か話したいのある？！")
-
-        # 「 typing() 」で思考中のステータスを表示
-        async with ctx.typing():
-            ai_reply = self.auto_chat(self.chat, message)
-            if not ai_reply:
-                # 応答が得られなかった場合
-                await ctx.reply("503 Server Error: Service Unavailable")
-            else:
-                # AIの返信をユーザーへ返信
-                if len(ai_reply) > 2000:
-                    ai_reply = ai_reply[:1900] + "..."
-                await ctx.reply(ai_reply)
-
-    @commands.command(name="ftjk")
-    async def freetalk_jk(self, ctx: commands.Context, *, message: str = None):
+        await self._send_ai_message(
+            ctx, 
+            self.chats["yankee"], 
+            message,
+            ChatPersonality.YANKEE["empty_message"]
+        )
+    
+    @commands.command(name="ftn", aliases=["freetalk_normal"])
+    async def freetalk_normal(self, ctx: commands.Context, *, message: Optional[str] = None):
         """
-        べ、別にあんたのためじゃないんだからねっ！
-        Usage: !ftjk <メッセージ>
+        💼 丁寧な口調で会話します（FF14の知識も豊富）
+        
+        使い方: !ftn <メッセージ>
+        例: !ftn 極ゴルベーザの攻略を教えて
         """
-        if not message:
-            await ctx.reply("何か話したいのある？！")
+        await self._send_ai_message(
+            ctx, 
+            self.chats["normal"], 
+            message,
+            ChatPersonality.NORMAL["empty_message"]
+        )
+    
+    @commands.command(name="ftjk", aliases=["freetalk_jk", "tsundere"])
+    async def freetalk_tsundere(self, ctx: commands.Context, *, message: Optional[str] = None):
+        """
+        💕 ツンデレJK口調で会話します
+        
+        使い方: !ftjk <メッセージ>
+        例: !ftjk こんにちは
+        """
+        await self._send_ai_message(
+            ctx, 
+            self.chats["tsundere"], 
+            message,
+            ChatPersonality.TSUNDERE_JK["empty_message"]
+        )
+    
+    @commands.command(name="reset_chat", hidden=True)
+    @commands.is_owner()
+    async def reset_chat(self, ctx: commands.Context, mode: str = "all"):
+        """
+        🔄 チャット履歴をリセットします（Bot所有者のみ）
+        
+        使い方: !reset_chat [mode]
+        mode: yankee, normal, tsundere, all (デフォルト: all)
+        """
+        modes_to_reset = []
+        
+        if mode == "all":
+            modes_to_reset = ["yankee", "normal", "tsundere"]
+        elif mode in self.chats:
+            modes_to_reset = [mode]
+        else:
+            await ctx.reply(f"❌ 無効なモード: {mode}\n使用可能: yankee, normal, tsundere, all")
+            return
+        
+        for mode_name in modes_to_reset:
+            personality = {
+                "yankee": ChatPersonality.YANKEE,
+                "normal": ChatPersonality.NORMAL,
+                "tsundere": ChatPersonality.TSUNDERE_JK
+            }[mode_name]
+            
+            self.chats[mode_name] = self._create_chat(personality)
+        
+        await ctx.reply(f"✅ チャット履歴をリセットしました: {', '.join(modes_to_reset)}")
 
-        # 「 typing() 」で思考中のステータスを表示
-        async with ctx.typing():
-            ai_reply = self.auto_chat(self.chat_jk, message)
-            if not ai_reply:
-                # 応答が得られなかった場合
-                await ctx.reply("503 Server Error: Service Unavailable")
-            else:
-                # AIの返信をユーザーへ返信
-                if len(ai_reply) > 2000:
-                    ai_reply = ai_reply[:1900] + "..."
-                await ctx.reply(ai_reply)
 
-# 非同期のセットアップ関数
 async def setup(bot: commands.Bot):
-    """
-    このCogをBotに登録するための関数。
-    Botの拡張機能としてロードされる。
-    """
-    await bot.add_cog(FreeTalkCog(bot))
-    print("FreeTalkCog loaded.")
+    """このCogをBotに登録"""
+    try:
+        await bot.add_cog(FreeTalkCog(bot))
+        print("✅ FreeTalkCog loaded.")
+    except Exception as e:
+        print(f"❌ FreeTalkCog の読み込みに失敗: {e}")
+        raise

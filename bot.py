@@ -1,185 +1,425 @@
 # bot.py
 import os
-import discord
-from discord.ext import commands
 import json
 import asyncio
 import secrets
-
-base_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(base_dir, "config.json")
-
-# config.jsonから設定を読み込む
-with open(config_path, "r") as f:
-    config = json.load(f)
-
-# Discordのトークンと通知先チャンネルIDを取得
-TOKEN = config["DISCORD_TOKEN"]
-CHANNEL_ID = config["CHANNEL_ID"]
-
-# DiscordのIntentsを設定。message_contentを有効にする
-intents = discord.Intents.default()
-intents.message_content = True
-
-# ボット終了時に必要なランダムなハッシュ値を生成（終了コマンドの認証用）
-random_hash = secrets.token_hex(16)
-
-# ボットのインスタンスを作成。コマンドプレフィックスは "!" とする
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-# カスタムヘルプコマンドを使用するため、デフォルトのhelpコマンドを削除する
-bot.remove_command('help')
+from pathlib import Path
+from typing import Optional
+import discord
+from discord.ext import commands
 
 
-async def load_extensions():
-    """
-    cogsフォルダ内の拡張機能（Cog）をすべてロードする非同期関数。
-    base_cog.pyおよびファイル名が"__"で始まるファイルは除外します。
-    """
-    cogs_folder = "./cogs"
-    cogs_path = os.path.join(base_dir, cogs_folder)
-    print("拡張機能をロード中:", cogs_path)
-    for filename in os.listdir(cogs_path):
-        if filename.endswith(".py") and filename != "base_cog.py" and not filename.startswith("__"):
-            extension = f"cogs.{filename[:-3]}"
+class BotConfig:
+    """ボットの設定を管理するクラス"""
+    
+    def __init__(self, config_file: str = "config.json"):
+        self.base_dir = Path(__file__).parent
+        self.config_path = self.base_dir / config_file
+        self._config = None
+    
+    def load(self) -> dict:
+        """設定ファイルを読み込む"""
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self._config = json.load(f)
+            print(f"✅ 設定ファイル読み込み完了: {self.config_path}")
+            return self._config
+        except FileNotFoundError:
+            raise FileNotFoundError(f"設定ファイルが見つかりません: {self.config_path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"設定ファイルの形式が不正です: {e}")
+    
+    @property
+    def config(self) -> dict:
+        """設定を取得（キャッシュ付き）"""
+        if self._config is None:
+            self._config = self.load()
+        return self._config
+    
+    @property
+    def discord_token(self) -> str:
+        """Discordトークンを取得"""
+        return self.config.get("DISCORD_TOKEN", "")
+    
+    @property
+    def channel_id(self) -> Optional[int]:
+        """通知チャンネルIDを取得"""
+        channel_id = self.config.get("CHANNEL_ID")
+        return int(channel_id) if channel_id else None
+
+
+class FF14Bot(commands.Bot):
+    """FF14用カスタムBot"""
+    
+    def __init__(self, config: BotConfig, *args, **kwargs):
+        """
+        FF14Botのコンストラクタ
+        
+        Args:
+            config: ボット設定
+        """
+        super().__init__(*args, **kwargs)
+        self.config_manager = config
+        self.shutdown_hash = secrets.token_hex(16)
+        self.startup_complete = False
+    
+    async def setup_hook(self):
+        """ボット起動時の初期セットアップ"""
+        await self.load_all_extensions()
+    
+    async def load_all_extensions(self):
+        """すべてのCog拡張機能をロード"""
+        cogs_dir = Path(__file__).parent / "cogs"
+        
+        if not cogs_dir.exists():
+            print(f"⚠️ cogsディレクトリが見つかりません: {cogs_dir}")
+            return
+        
+        print(f"📦 拡張機能をロード中: {cogs_dir}")
+        
+        loaded_count = 0
+        failed_count = 0
+        
+        for filepath in cogs_dir.glob("*.py"):
+            # 除外するファイル
+            if filepath.stem in ["base_cog", "__init__"] or filepath.stem.startswith("_"):
+                continue
+            
+            extension_name = f"cogs.{filepath.stem}"
+            
             try:
-                await bot.load_extension(extension)
-                # 拡張機能のロード成功時のデバッグ出力（必要に応じてコメントアウト解除）
-                # print(f"拡張機能 {extension} がロードされました")
+                await self.load_extension(extension_name)
+                print(f"  ✅ {extension_name}")
+                loaded_count += 1
             except Exception as e:
-                print(f"拡張機能 {extension} のロードに失敗しました: {e}")
+                print(f"  ❌ {extension_name}: {e}")
+                failed_count += 1
+        
+        print(f"\n📊 拡張機能ロード結果: 成功 {loaded_count}件 / 失敗 {failed_count}件\n")
+    
+    async def on_ready(self):
+        """ボット起動完了時の処理"""
+        if self.startup_complete:
+            return
+        
+        self.startup_complete = True
+        
+        print("=" * 50)
+        print(f"🤖 {self.user} としてログイン完了")
+        print(f"📝 ユーザーID: {self.user.id}")
+        print(f"🔧 discord.py バージョン: {discord.__version__}")
+        print(f"🌐 接続サーバー数: {len(self.guilds)}")
+        print(f"📡 レイテンシ: {round(self.latency * 1000)}ms")
+        print("=" * 50)
+        
+        # 登録コマンド一覧
+        print("\n📋 登録されているコマンド:")
+        for cmd in sorted(self.commands, key=lambda c: c.name):
+            if not cmd.hidden:
+                print(f"  • {cmd.name:<15} - {cmd.help or '説明なし'}")
+        print()
+        
+        # 起動通知（オプション）
+        channel_id = self.config_manager.channel_id
+        if channel_id:
+            channel = self.get_channel(channel_id)
+            if channel:
+                embed = discord.Embed(
+                    title="🟢 Bot起動",
+                    description="FF14 Botがオンラインになりました！",
+                    color=discord.Color.green()
+                )
+                try:
+                    await channel.send(embed=embed)
+                except discord.Forbidden:
+                    print(f"⚠️ チャンネル {channel_id} への送信権限がありません")
+    
+    async def on_command_error(self, ctx: commands.Context, error: Exception):
+        """コマンドエラーハンドラ"""
+        # CommandNotFoundは無視
+        if isinstance(error, commands.CommandNotFound):
+            return
+        
+        # MissingRequiredArgumentエラー
+        if isinstance(error, commands.MissingRequiredArgument):
+            embed = discord.Embed(
+                title="❌ 引数が不足しています",
+                description=f"必要な引数: `{error.param.name}`\n\n使い方は `!help {ctx.command.name}` で確認できます。",
+                color=discord.Color.red()
+            )
+            await ctx.reply(embed=embed, mention_author=False)
+            return
+        
+        # NotOwnerエラー
+        if isinstance(error, commands.NotOwner):
+            await ctx.reply("❌ このコマンドはBot所有者のみ実行できます。", mention_author=False)
+            return
+        
+        # その他のエラー
+        print(f"❌ コマンドエラー ({ctx.command}): {error}")
+        
+        embed = discord.Embed(
+            title="❌ エラーが発生しました",
+            description="コマンドの実行中にエラーが発生しました。",
+            color=discord.Color.red()
+        )
+        await ctx.reply(embed=embed, mention_author=False)
+        
+        # エラーを再送出（デバッグ用）
+        raise error
 
 
-@bot.event
-async def on_ready():
-    """
-    ボットが起動してDiscordに接続が完了した際に実行されるイベントハンドラ。
-    指定のチャンネルにオンライン通知を送信し、登録されているコマンド一覧をデバッグ出力します。
-    """
-    print(f"{bot.user} としてログインしました")
-    # channel = bot.get_channel(CHANNEL_ID)
-    # if channel:
-    #     await channel.send("botオンライン!")
-    # 登録されているすべてのコマンドをデバッグ出力
-    print("登録されているコマンド:")
-    for cmd in bot.commands:
-        print(f"- {cmd.name}")
+def create_bot() -> FF14Bot:
+    """Botインスタンスを作成"""
+    # 設定を読み込む
+    config = BotConfig()
+    
+    # Intentsの設定
+    intents = discord.Intents.default()
+    intents.message_content = True
+    intents.guilds = True
+    intents.members = False  # 必要な場合はTrueに
+    
+    # Botインスタンスを作成
+    bot = FF14Bot(
+        config=config,
+        command_prefix='!',
+        intents=intents,
+        help_command=None,  # カスタムヘルプを使用
+        case_insensitive=True  # コマンド名の大文字小文字を区別しない
+    )
+    
+    return bot
 
+
+# Botインスタンスを作成
+bot = create_bot()
+
+
+# ==================== イベントハンドラ ====================
 
 @bot.event
 async def on_message(message: discord.Message):
-    """
-    メッセージ受信時に実行されるイベントハンドラ。
-    ボット自身のメッセージは無視し、特定のカスタムメッセージ（例: "!hello"）に対してレスポンスを返します。
-    それ以外のメッセージは通常のコマンド処理に回します。
-
-    Parameters:
-        message (discord.Message): 受信したメッセージオブジェクト
-    """
-    # ボット自身のメッセージは処理しない
-    if message.author == bot.user:
+    """メッセージ受信時の処理"""
+    # Bot自身のメッセージは無視
+    if message.author.bot:
         return
-
-    # "!hello" メッセージに対するカスタム処理
+    
+    # カスタムメッセージ処理
     if message.content.startswith("!hello"):
         params = message.content.split()[1:]
+        
         if params:
             formatted_params = " and ".join(params)
-            response = f"Hi, {formatted_params} was sent"
+            response = f"Hi, {formatted_params}! 👋"
         else:
-            response = "どうも!"
-
-        # ユーザーに返信（メンションなし）
+            response = "どうも！👋"
+        
         await message.reply(response, mention_author=False)
         return
-
-    # カスタム処理対象でない場合、他のコマンドを処理する
+    
+    # 通常のコマンド処理
     await bot.process_commands(message)
 
 
-@bot.event
-async def on_command_error(ctx, error):
-    """
-    コマンド実行時にエラーが発生した場合のエラーハンドラ。
-    CommandNotFoundエラーは無視し、それ以外のエラーはそのまま再スローします。
+# ==================== 基本コマンド ====================
 
-    Parameters:
-        ctx (commands.Context): コマンド実行時のコンテキスト
-        error (Exception): 発生したエラーオブジェクト
+@bot.command(name="ping", aliases=["p"])
+async def ping(ctx: commands.Context):
     """
-    if isinstance(error, commands.CommandNotFound):
+    🏓 Botの応答速度を確認
+    
+    使い方: !ping
+    """
+    latency_ms = round(bot.latency * 1000)
+    
+    embed = discord.Embed(
+        title="🏓 Pong!",
+        description=f"レイテンシ: **{latency_ms}ms**",
+        color=discord.Color.green() if latency_ms < 200 else discord.Color.orange()
+    )
+    
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.command(name="info", aliases=["botinfo", "about"])
+async def bot_info(ctx: commands.Context):
+    """
+    ℹ️ Botの情報を表示
+    
+    使い方: !info
+    """
+    embed = discord.Embed(
+        title="🤖 Bot情報",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Bot名",
+        value=bot.user.name,
+        inline=True
+    )
+    
+    embed.add_field(
+        name="レイテンシ",
+        value=f"{round(bot.latency * 1000)}ms",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="サーバー数",
+        value=f"{len(bot.guilds)}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="コマンド数",
+        value=f"{len([c for c in bot.commands if not c.hidden])}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="discord.py",
+        value=discord.__version__,
+        inline=True
+    )
+    
+    embed.set_footer(text="!help でコマンド一覧を確認")
+    
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+@bot.command(name="quit", aliases=["shutdown"], hidden=True)
+async def quit_bot(ctx: commands.Context, hash_str: Optional[str] = None):
+    """
+    🛑 Botを終了（緊急時のみ）
+    
+    使い方: !quit <認証ハッシュ>
+    """
+    if not hash_str or hash_str != bot.shutdown_hash:
+        await ctx.reply(
+            f"⚠️ Bot終了には認証が必要です。\n認証ハッシュ: `{bot.shutdown_hash}`",
+            mention_author=False
+        )
         return
-    raise error
-
-
-@bot.command(name="ping", hidden=True)
-async def ping(ctx):
-    await ctx.send(f'Pong! {round(bot.latency * 1000)}ms')
-
-
-@bot.command(name="quit")
-async def quit_bot(ctx: commands.Context, hash_str: str=None):
-    """
-    しゅーりょー！（機能異常時）
-    """
-    if not hash_str or hash_str != random_hash:
-        await ctx.reply(f"なにかあったの？{random_hash}")
-        return
-
-    await ctx.send("さよおうなら～")
+    
+    embed = discord.Embed(
+        title="👋 Bot終了",
+        description="さようなら～",
+        color=discord.Color.red()
+    )
+    
+    await ctx.reply(embed=embed, mention_author=False)
     await bot.close()
 
+
+# ==================== 拡張機能管理コマンド ====================
 
 @bot.command(name="load", hidden=True)
 @commands.is_owner()
 async def load_extension(ctx: commands.Context, extension: str):
     """
-    指定した拡張モジュール (Cog) のロードを行います。
+    📦 拡張機能をロード
+    
+    使い方: !load <拡張機能名>
     例: !load profile_cog
     """
     try:
-        await ctx.bot.load_extension(f"cogs.{extension}")
-        await ctx.send(f"Extension `{extension}` loaded successfully.")
+        await bot.load_extension(f"cogs.{extension}")
+        await ctx.reply(f"✅ 拡張機能 `{extension}` をロードしました。", mention_author=False)
+    except commands.ExtensionAlreadyLoaded:
+        await ctx.reply(f"⚠️ 拡張機能 `{extension}` は既にロードされています。", mention_author=False)
+    except commands.ExtensionNotFound:
+        await ctx.reply(f"❌ 拡張機能 `{extension}` が見つかりません。", mention_author=False)
     except Exception as e:
-        await ctx.send(f"Failed to load extension `{extension}`.\nError: {e}")
+        await ctx.reply(f"❌ ロードに失敗: {e}", mention_author=False)
 
 
 @bot.command(name="reload", hidden=True)
-@commands.is_owner()  # オーナーのみ実行できるようにする
-async def reload_extension(ctx, extension: str):
+@commands.is_owner()
+async def reload_extension(ctx: commands.Context, extension: str):
     """
-        指定した拡張モジュール (Cog) のリロードを行います。
-        例: !reload profile_cog
-        """
+    🔄 拡張機能をリロード
+    
+    使い方: !reload <拡張機能名>
+    例: !reload profile_cog
+    """
     try:
-        await ctx.bot.reload_extension(f"cogs.{extension}")
-        await ctx.send(f"Extension `{extension}` reloaded successfully.")
+        await bot.reload_extension(f"cogs.{extension}")
+        await ctx.reply(f"✅ 拡張機能 `{extension}` をリロードしました。", mention_author=False)
+    except commands.ExtensionNotLoaded:
+        await ctx.reply(f"⚠️ 拡張機能 `{extension}` はロードされていません。", mention_author=False)
+    except commands.ExtensionNotFound:
+        await ctx.reply(f"❌ 拡張機能 `{extension}` が見つかりません。", mention_author=False)
     except Exception as e:
-        await ctx.send(f"Failed to reload extension `{extension}`.\nError: {e}")
+        await ctx.reply(f"❌ リロードに失敗: {e}", mention_author=False)
 
 
 @bot.command(name="unload", hidden=True)
 @commands.is_owner()
 async def unload_extension(ctx: commands.Context, extension: str):
     """
-    指定した拡張モジュール (Cog) のアンロードを行います。
+    📤 拡張機能をアンロード
+    
+    使い方: !unload <拡張機能名>
     例: !unload profile_cog
     """
     try:
-        await ctx.bot.unload_extension(f"cogs.{extension}")
-        await ctx.send(f"Extension `{extension}` unloaded successfully.")
+        await bot.unload_extension(f"cogs.{extension}")
+        await ctx.reply(f"✅ 拡張機能 `{extension}` をアンロードしました。", mention_author=False)
+    except commands.ExtensionNotLoaded:
+        await ctx.reply(f"⚠️ 拡張機能 `{extension}` はロードされていません。", mention_author=False)
     except Exception as e:
-        await ctx.send(f"Failed to unload extension `{extension}`.\nError: {e}")
+        await ctx.reply(f"❌ アンロードに失敗: {e}", mention_author=False)
 
+
+@bot.command(name="extensions", aliases=["exts", "cogs"], hidden=True)
+@commands.is_owner()
+async def list_extensions(ctx: commands.Context):
+    """
+    📋 ロード済みの拡張機能一覧を表示
+    
+    使い方: !extensions
+    """
+    extensions = list(bot.extensions.keys())
+    
+    if not extensions:
+        await ctx.reply("⚠️ ロードされている拡張機能はありません。", mention_author=False)
+        return
+    
+    embed = discord.Embed(
+        title="📦 ロード済み拡張機能",
+        description="\n".join([f"• `{ext}`" for ext in sorted(extensions)]),
+        color=discord.Color.blue()
+    )
+    
+    embed.set_footer(text=f"合計: {len(extensions)}個")
+    
+    await ctx.reply(embed=embed, mention_author=False)
+
+
+# ==================== メイン処理 ====================
 
 async def main():
-    """
-    ボットのメイン関数。
-    拡張機能をロードし、Discordボットを起動します。
-    """
-    async with bot:
-        await load_extensions()
-        await bot.start(TOKEN)
+    """メイン関数"""
+    try:
+        print("🚀 FF14 Bot起動中...\n")
+        
+        # Botを起動
+        token = bot.config_manager.discord_token
+        if not token:
+            raise ValueError("DISCORD_TOKENが設定されていません")
+        
+        async with bot:
+            await bot.start(token)
+    
+    except KeyboardInterrupt:
+        print("\n⚠️ キーボード割り込みを受信しました")
+    except Exception as e:
+        print(f"\n❌ エラーが発生しました: {e}")
+        raise
+    finally:
+        print("\n👋 Bot終了")
 
 
 if __name__ == '__main__':

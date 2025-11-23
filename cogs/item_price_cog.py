@@ -144,6 +144,65 @@ class ItemCog(commands.Cog):
         padding = width - current_width
         return text + " " * padding
 
+    def shorten_text(self, text, max_length=4):
+        """
+        テキストを指定した長さに短縮する
+
+        Parameters:
+            text (str): 短縮するテキスト
+            max_length (int): 最大文字数
+
+        Returns:
+            str: 短縮されたテキスト
+        """
+        if len(text) <= max_length:
+            return text
+        return text[:max_length]
+
+    def shorten_update_time(self, time_str):
+        """
+        更新時間を短縮形式に変換
+        例: "3 hours ago" -> "3h", "2 days ago" -> "2d", "last week" -> "1w"
+
+        Parameters:
+            time_str (str): 更新時間の文字列
+
+        Returns:
+            str: 短縮された更新時間
+        """
+        time_str = time_str.lower().strip()
+
+        # 「ago」を削除
+        time_str = time_str.replace(" ago", "")
+
+        # 各単位に対応
+        if "hour" in time_str:
+            # "3 hours" -> "3h"
+            num = time_str.split()[0]
+            return f"{num}h"
+        elif "yesterday" in time_str:
+            return "1d"
+        elif "day" in time_str:
+            # "2 days" -> "2d"
+            num = time_str.split()[0]
+            return f"{num}d"
+        elif "week" in time_str:
+            # "last week" or "1 week" -> "1w"
+            if "last" in time_str:
+                return "1w"
+            num = time_str.split()[0]
+            return f"{num}w"
+        elif "month" in time_str:
+            # "1 month" -> "1mo"
+            num = time_str.split()[0]
+            return f"{num}mo"
+        elif "minute" in time_str:
+            # "30 minutes" -> "30m"
+            num = time_str.split()[0]
+            return f"{num}m"
+        else:
+            return time_str[:4]  # デフォルトは4文字
+
     async def show_price_info(self, ctx, item_id, item_jp, item_en):
         """
         アイテムの価格情報を取得して表示する
@@ -178,6 +237,22 @@ class ItemCog(commands.Cog):
 
             # BeautifulSoupでHTMLを解析
             soup = BeautifulSoup(response.content, "html.parser")
+
+            # region_update_timesからサーバごとの更新時間を取得
+            update_times_dict = {}
+            update_times_container = soup.find('div', class_='region_update_times')
+            if update_times_container:
+                # h4タグ（サーバ名）を探す
+                for h4 in update_times_container.find_all('h4'):
+                    server_name = h4.text.strip()
+                    # h4の親divから次のdivを取得
+                    parent_div = h4.parent
+                    time_div = parent_div.find('div')
+                    if time_div:
+                        update_time = time_div.text.strip()
+                        # 更新時間を短縮形式に変換
+                        update_time = self.shorten_update_time(update_time)
+                        update_times_dict[server_name] = update_time
 
             # "Mat"列を含むテーブルを探す
             target_table = None
@@ -217,18 +292,24 @@ class ItemCog(commands.Cog):
 
                 # 必要なデータを抽出
                 try:
-                    server = cells[1].text.strip()[:5]  # サーバー名（最大5文字）
-                    dc = cells[2].text.strip()[:5]  # DC名（最大5文字）
+                    server_full = cells[1].text.strip()  # サーバー名（フル）
+                    server = self.shorten_text(server_full, 4)  # サーバー名（4文字）
+                    dc_full = cells[2].text.strip()  # DC名（フル）
+                    dc = self.shorten_text(dc_full, 4)  # DC名（4文字）
                     price = self.format_number(cells[5].text.strip())  # 価格
                     quantity = cells[6].text.strip()  # 数量
                     total = self.format_number(cells[7].text.strip())  # 合計金額
+
+                    # 更新時間を取得
+                    update_time = update_times_dict.get(server_full, "")
 
                     table_rows.append({
                         "server": server,
                         "dc": dc,
                         "price": price,
                         "quantity": quantity,
-                        "total": total
+                        "total": total,
+                        "update_time": update_time
                     })
                 except (IndexError, AttributeError):
                     continue
@@ -260,24 +341,26 @@ class ItemCog(commands.Cog):
                 "dc": max(self.get_display_width(row["dc"]) for row in table_rows),
                 "price": max(self.get_display_width(row["price"]) for row in table_rows),
                 "quantity": max(self.get_display_width(row["quantity"]) for row in table_rows),
-                "total": max(self.get_display_width(row["total"]) for row in table_rows)
+                "total": max(self.get_display_width(row["total"]) for row in table_rows),
+                "update_time": max((self.get_display_width(row["update_time"]) for row in table_rows), default=0)
             }
 
             # ヘッダーの幅も考慮
-            headers = {"server": "鯖", "dc": "DC", "price": "価格", "quantity": "量", "total": "合計"}
+            headers_dict = {"server": "鯖", "dc": "DC", "price": "価格", "quantity": "量", "total": "合計", "update_time": "更新"}
             for key in max_widths:
-                max_widths[key] = max(max_widths[key], self.get_display_width(headers[key]))
+                max_widths[key] = max(max_widths[key], self.get_display_width(headers_dict[key]))
 
             # テーブルを構築
             table_lines = []
 
             # ヘッダー行（日本語の表示幅を考慮してパディング）
             header_line = (
-                f"{self.pad_text(headers['server'], max_widths['server'])} | "
-                f"{self.pad_text(headers['dc'], max_widths['dc'])} | "
-                f"{self.pad_text(headers['price'], max_widths['price'])} | "
-                f"{self.pad_text(headers['quantity'], max_widths['quantity'])} | "
-                f"{self.pad_text(headers['total'], max_widths['total'])}"
+                f"{self.pad_text(headers_dict['server'], max_widths['server'])} | "
+                f"{self.pad_text(headers_dict['dc'], max_widths['dc'])} | "
+                f"{self.pad_text(headers_dict['price'], max_widths['price'])} | "
+                f"{self.pad_text(headers_dict['quantity'], max_widths['quantity'])} | "
+                f"{self.pad_text(headers_dict['total'], max_widths['total'])} | "
+                f"{self.pad_text(headers_dict['update_time'], max_widths['update_time'])}"
             )
             table_lines.append(header_line)
             table_lines.append("-" * self.get_display_width(header_line))
@@ -289,7 +372,8 @@ class ItemCog(commands.Cog):
                     f"{self.pad_text(row['dc'], max_widths['dc'])} | "
                     f"{self.pad_text(row['price'], max_widths['price'])} | "
                     f"{self.pad_text(row['quantity'], max_widths['quantity'])} | "
-                    f"{self.pad_text(row['total'], max_widths['total'])}"
+                    f"{self.pad_text(row['total'], max_widths['total'])} | "
+                    f"{self.pad_text(row['update_time'], max_widths['update_time'])}"
                 )
                 table_lines.append(line)
 

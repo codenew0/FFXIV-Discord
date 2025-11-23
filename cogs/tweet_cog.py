@@ -50,17 +50,22 @@ class TweetCog(commands.Cog):
             ツイートIDのリスト（リツイートを除く）
         """
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu'
-                ]
-            )
+            try:
+                browser = await p.chromium.launch(
+                    headless=True,  # 新しいヘッドレスモードを自動使用
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                        '--disable-gpu'
+                    ]
+                )
+            except Exception as e:
+                print(f"ブラウザ起動エラー: {e}")
+                return []
 
             try:
                 context = await browser.new_context(

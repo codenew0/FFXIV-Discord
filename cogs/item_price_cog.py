@@ -178,24 +178,34 @@ class ItemCog(commands.Cog):
         # 各単位に対応
         if "hour" in time_str:
             # "3 hours" -> "3h"
+            if "an " in time_str:
+                return "1h"
             num = time_str.split()[0]
             return f"{num}h"
-        elif "yesterday" in time_str:
-            return "1d"
         elif "day" in time_str:
             # "2 days" -> "2d"
+            if "yesterday" in time_str:
+                return "1d"
             num = time_str.split()[0]
             return f"{num}d"
         elif "week" in time_str:
             # "last week" or "1 week" -> "1w"
-            if "last" in time_str:
+            if "last" in time_str or "one" in time_str:
                 return "1w"
             num = time_str.split()[0]
             return f"{num}w"
         elif "month" in time_str:
             # "1 month" -> "1mo"
+            if "last" in time_str or "one" in time_str:
+                return "1mo"
             num = time_str.split()[0]
             return f"{num}mo"
+        elif "year" in time_str:
+            # "last year" or "one year" -> "1y"
+            if "last" in time_str or "one" in time_str:
+                return "1y"
+            num = time_str.split()[0]
+            return f"{num}y"
         elif "minute" in time_str:
             # "30 minutes" -> "30m"
             num = time_str.split()[0]

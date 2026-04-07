@@ -1,112 +1,141 @@
-# base_cog.py
-from discord.ext import commands
-from playwright.async_api import async_playwright
-import requests
-from bs4 import BeautifulSoup
+# cogs/base_cog.py
 import json
 import re
+from pathlib import Path
+from typing import Optional, Dict, List
+import requests
+from bs4 import BeautifulSoup
+from discord.ext import commands
+
+
+class ConfigManager:
+    """設定ファイルの管理クラス"""
+    
+    def __init__(self, config_path: str = "config.json"):
+        self.config_path = Path(config_path)
+        self._config = None
+    
+    @property
+    def config(self) -> Dict:
+        """設定を読み込む（キャッシュ付き）"""
+        if self._config is None:
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    self._config = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                print(f"❌ 設定ファイルの読み込みエラー: {e}")
+                self._config = {}
+        return self._config
+    
+    def get_worlds_jp(self) -> List[str]:
+        """日本語ワールドリストを取得"""
+        worlds_file = self.config.get("DATA_FILE_WORLD_JP", "worlds_jp.json")
+        try:
+            with open(worlds_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+        except (FileNotFoundError, json.JSONDecodeError):
+            print(f"❌ ワールドリストの読み込みエラー: {worlds_file}")
+            return []
+
+
+class LodestoneSearcher:
+    """Lodestone検索機能を提供するクラス"""
+    
+    BASE_URL = "https://jp.finalfantasyxiv.com/lodestone"
+    
+    def __init__(self, config_manager: ConfigManager):
+        self.config_manager = config_manager
+    
+    def search_character(self, character_name: str, world_name: str) -> Optional[str]:
+        """
+        Lodestoneでキャラクターを検索し、IDを返す
+        
+        Args:
+            character_name: キャラクター名（フルネーム）
+            world_name: ワールド名
+        
+        Returns:
+            キャラクターID（見つからない場合はNone）
+        """
+        # ワールド名が有効かチェック
+        valid_worlds = self.config_manager.get_worlds_jp()
+        if world_name not in valid_worlds:
+            print(f"❌ 無効なワールド名: {world_name}")
+            return None
+        
+        # 検索パラメータ
+        params = {
+            "q": character_name,
+            "worldname": world_name
+        }
+        
+        try:
+            url = f"{self.BASE_URL}/character/"
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # 検索結果のエントリを取得
+            entries = soup.find_all("div", class_="entry")
+            
+            if not entries:
+                print(f"⚠️ キャラクターが見つかりません: {character_name}@{world_name}")
+                return None
+            
+            # 完全一致するキャラクターを探す
+            for entry in entries:
+                name_element = entry.find("p", class_="entry__name")
+                if not name_element:
+                    continue
+                
+                found_name = name_element.get_text(strip=True)
+                
+                # 名前が完全一致するか確認
+                if found_name == character_name:
+                    link = entry.find("a", href=re.compile(r"/lodestone/character/\d+/"))
+                    if link:
+                        match = re.search(r"/lodestone/character/(\d+)/", link["href"])
+                        if match:
+                            character_id = match.group(1)
+                            print(f"✅ キャラクター発見: {character_name} (ID: {character_id})")
+                            return character_id
+            
+            print(f"⚠️ 完全一致するキャラクターが見つかりません: {character_name}")
+            return None
+            
+        except requests.RequestException as e:
+            print(f"❌ Lodestone検索エラー: {e}")
+            return None
+    
+    def get_character_url(self, character_id: str) -> str:
+        """キャラクターのLodestone URLを生成"""
+        return f"{self.BASE_URL}/character/{character_id}/"
 
 
 class BaseCog(commands.Cog):
+    """基本的な機能を提供する基底Cogクラス"""
+    
     def __init__(self):
-        super.__init__()
-
-    async def capture_screenshot(self, char_id: str, name_slug: str) -> str:
+        """BaseCogのコンストラクタ"""
+        super().__init__()
+        self.config_manager = ConfigManager()
+        self.searcher = LodestoneSearcher(self.config_manager)
+    
+    def lodestone_search(self, character_name: str, world_name: str) -> Optional[str]:
         """
-        Capture a screenshot from the URL:
-        https://jp.tomestone.gg/character/{char_id}/{name_slug}
+        Lodestoneでキャラクターを検索（互換性のため）
+        
+        Args:
+            character_name: キャラクター名
+            world_name: ワールド名
+        
+        Returns:
+            キャラクターID
         """
-        pathname = "character.png"
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.set_viewport_size({"width": 1280, "height": 1800})
-            url = f"https://jp.tomestone.gg/character/{char_id}/{name_slug}"
-            await page.goto(url)
-
-            # Selector for the <div> you want to keep
-            keep_selector = ".flex.flex-row.flex-1.justify-center"  # The <div> you want to keep
-
-            await page.evaluate(f'''
-                        (selector) => {{
-                            const keep = document.querySelector(selector);
-                            if (!keep) return;
-
-                            // 1) Move up the DOM from the 'keep' element to <body>.
-                            //    At each level, remove siblings of the current node.
-                            let current = keep;
-                            while (current && current !== document.body) {{
-                                const parent = current.parentElement;
-                                if (!parent) break;
-
-                                // 2) Remove all siblings at this level that aren't 'current'
-                                //    This effectively removes "brother" tags like nav or script if they share the same parent
-                                for (const sibling of parent.children) {{
-                                    if (sibling !== current) {{
-                                        sibling.remove();
-                                    }}
-                                }}
-                                current = parent;
-                            }}
-
-                            // 3) (Optional) Remove all global <nav> or <script> elements anywhere on the page.
-                            //    If you only want to remove them outside your keep chain, do it here.
-                            document.querySelectorAll('nav, script').forEach(el => el.remove());
-                        }}
-                    ''', keep_selector)
-
-            # Finally, take the screenshot
-            await page.screenshot(path=pathname, clip={"x": 0, "y": 0, "width": 1280, "height": 1585})
-            await browser.close()
-        return pathname
-
-    def load_worlds_jp(self, data_file_worlds_jp):
-        try:
-            with open(data_file_worlds_jp, "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return []
-
-    def lodestone_search(self, query: str, worldname: str):
-        """
-        Searches the Lodestone for the given query and worldname.
-        Only elements with an exact class of ["entry"] are considered.
-        Returns a list of character IDs.
-        """
-        with open("config.json", "r") as f:
-            config = json.load(f)
-
-        data_file_worlds_jp = self.load_worlds_jp(config["DATA_FILE_WORLD_JP"])
-        if worldname not in data_file_worlds_jp:
-            return None
-
-        params = {"q": query, "worldname": worldname}
-        url = "https://jp.finalfantasyxiv.com/lodestone/character/"
-        response = requests.get(url, params=params)
-        soup = BeautifulSoup(response.text, "html.parser")
-        # Find all entries with class="entry"
-        entries = soup.find_all(lambda tag: tag.has_attr("class") and tag["class"] == ["entry"])
-        if not entries:
-            return None
-
-        # Find the element containing the character's displayed name
-        character_ids = []
-        for entry in entries:
-            name_el = entry.find("p", class_="entry__name")
-            if not name_el:
-                return None
-            found_name = name_el.get_text(strip=True)
-            if found_name != query:
-                continue
-
-            link = entry.find("a", href=re.compile(r"/lodestone/character/\d+/"))
-            if link:
-                match = re.search(r"/lodestone/character/(\d+)/", link["href"])
-                if match:
-                    character_ids.append(match.group(1))
-                    break
-
-        if not character_ids:
-            return None
-
-        return character_ids[0]
+        return self.searcher.search_character(character_name, world_name)
+    
+    def get_lodestone_url(self, character_id: str) -> str:
+        """キャラクターのLodestone URLを取得"""
+        return self.searcher.get_character_url(character_id)

@@ -9,7 +9,7 @@ class TestCog(commands.Cog):
     @commands.command(name="hello")
     async def hello(self, ctx: commands.Context, *args):
         """
-                Say hello guys!
+                Say hello guys!(テスト用)
         """
         response = " ".join(args) if args else "Hello!"
         await ctx.reply(response)

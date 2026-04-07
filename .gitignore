@@ -1,5 +1,7 @@
 *.json
 *.png
+.idea/
+.DS_Store
 
 __pycache__/
 cogs/__pycache__/

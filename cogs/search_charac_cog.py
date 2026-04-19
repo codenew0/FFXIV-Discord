@@ -18,11 +18,6 @@ class SearchCog(BaseCog):
         super().__init__()
         self.bot = bot
     
-    @staticmethod
-    def normalize_input(text: str) -> str:
-        """入力文字列を正規化"""
-        return text.strip().capitalize()
-    
     @commands.command(name="charac", aliases=["search", "検索", "キャラ"])
     async def charac(
         self, 
@@ -55,7 +50,7 @@ class SearchCog(BaseCog):
         
         # Lodestoneで検索
         async with ctx.typing():
-            character_id = self.lodestone_search(full_name, server)
+            character_id = await self.lodestone_search(full_name, server)
             
             if not character_id:
                 embed = discord.Embed(

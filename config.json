@@ -1,0 +1,7 @@
+{
+    "CHANNEL_ID": 1339577526288253048,
+    "DATA_FILE_USERNAMES": "usernames.json",
+    "DATA_FILE_TWEETS": "sent_tweets.json",
+    "DATA_FILE_WORLD_JP": "worlds_jp.json",
+    "AI_API_URL": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash"
+}

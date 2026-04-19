@@ -1,40 +1,9 @@
 # cogs/freetalk_cog.py
-import json
 import os
-from typing import Optional, Dict
+from typing import Optional
 from discord.ext import commands
 from google import genai
 from google.genai import types
-
-
-class ConfigLoader:
-    """設定ファイルの読み込みを管理するクラス"""
-    
-    def __init__(self, config_filename: str = "config.json"):
-        base_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-        self.config_path = os.path.join(base_dir, config_filename)
-    
-    def load_api_credentials(self) -> tuple[str, str]:
-        """
-        config.jsonからAI関連のAPIキーとURLを読み込む
-        
-        Returns:
-            tuple: (api_key, api_url)
-        
-        Raises:
-            FileNotFoundError: 設定ファイルが見つからない場合
-            KeyError: 必要なキーが設定ファイルに存在しない場合
-        """
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                api_key = config["AI_API_KEY"]
-                api_url = config["AI_API_URL"]
-            return api_key, api_url
-        except FileNotFoundError:
-            raise FileNotFoundError(f"設定ファイルが見つかりません: {self.config_path}")
-        except KeyError as e:
-            raise KeyError(f"設定ファイルに必要なキーがありません: {e}")
 
 
 class ChatPersonality:
@@ -83,33 +52,26 @@ class FreeTalkCog(commands.Cog):
             bot: Botのインスタンス
         """
         self.bot = bot
-        self.config_loader = ConfigLoader()
+        self.api_key = os.environ.get("AI_API_KEY", "")
+        if not self.api_key:
+            raise KeyError("AI_API_KEY が環境変数に設定されていません（.env を確認してください）")
         
-        try:
-            self.api_key, self.api_url = self.config_loader.load_api_credentials()
-        except (FileNotFoundError, KeyError) as e:
-            print(f"❌ 設定読み込みエラー: {e}")
-            raise
-        
+        self._client: genai.Client | None = None
+
         # 各性格のチャットを初期化
-        self.chats: Dict[str, any] = {
+        self.chats: dict = {
             "yankee": self._create_chat(ChatPersonality.YANKEE),
             "normal": self._create_chat(ChatPersonality.NORMAL),
             "tsundere": self._create_chat(ChatPersonality.TSUNDERE_JK)
         }
-    
-    def _create_chat(self, personality: Dict) -> any:
-        """
-        指定された性格設定でチャットを作成
-        
-        Args:
-            personality: 性格設定の辞書
-        
-        Returns:
-            作成されたチャットオブジェクト
-        """
-        client = genai.Client(api_key=self.api_key)
-        
+
+    def _ensure_client(self) -> genai.Client:
+        """クライアントが閉じていれば再生成して返す。"""
+        if self._client is None:
+            self._client = genai.Client(api_key=self.api_key)
+        return self._client
+
+    def _create_chat(self, personality: dict) -> any:
         config_params = {
             "system_instruction": personality["system_instruction"],
             "max_output_tokens": 2000,
@@ -117,13 +79,12 @@ class FreeTalkCog(commands.Cog):
             "top_p": 0.5,
             "temperature": 0.5
         }
-        
-        # Google検索ツールを使用する場合
+
         if personality.get("use_search", False):
             config_params["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-        
-        return client.chats.create(
-            model='gemini-2.0-flash',
+
+        return self._ensure_client().chats.create(
+            model='gemini-2.5-flash',
             config=types.GenerateContentConfig(**config_params)
         )
     
@@ -230,13 +191,16 @@ class FreeTalkCog(commands.Cog):
             await ctx.reply(f"❌ 無効なモード: {mode}\n使用可能: yankee, normal, tsundere, all")
             return
         
+        # クライアントごと作り直すことで接続問題も解消する
+        self._client = None
+
         for mode_name in modes_to_reset:
             personality = {
                 "yankee": ChatPersonality.YANKEE,
                 "normal": ChatPersonality.NORMAL,
                 "tsundere": ChatPersonality.TSUNDERE_JK
             }[mode_name]
-            
+
             self.chats[mode_name] = self._create_chat(personality)
         
         await ctx.reply(f"✅ チャット履歴をリセットしました: {', '.join(modes_to_reset)}")

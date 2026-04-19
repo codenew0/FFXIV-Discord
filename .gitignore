@@ -1,7 +1,25 @@
-*.json
-*.png
-.idea/
-.DS_Store
+# シークレット（絶対にコミットしない）
+.env
 
-__pycache__/
-cogs/__pycache__/
+# ランタイムデータ（コミット不要）
+sent_tweets.json
+usernames.json
+
+# Python
+**/__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 画像
+*.png

@@ -9,6 +9,26 @@ import discord
 from discord.ext import commands
 
 
+def _load_dotenv():
+    """プロジェクトルートの .env ファイルを環境変数にロードする。"""
+    env_path = Path(__file__).parent / ".env"
+    if not env_path.exists():
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
+
 class BotConfig:
     """ボットの設定を管理するクラス"""
     
@@ -38,8 +58,8 @@ class BotConfig:
     
     @property
     def discord_token(self) -> str:
-        """Discordトークンを取得"""
-        return self.config.get("DISCORD_TOKEN", "")
+        """Discordトークンを取得（環境変数優先）"""
+        return os.environ.get("DISCORD_TOKEN") or self.config.get("DISCORD_TOKEN", "")
     
     @property
     def channel_id(self) -> Optional[int]:
@@ -119,20 +139,20 @@ class FF14Bot(commands.Bot):
                 print(f"  • {cmd.name:<15} - {cmd.help or '説明なし'}")
         print()
         
-        # 起動通知（オプション）
-        channel_id = self.config_manager.channel_id
-        if channel_id:
-            channel = self.get_channel(channel_id)
-            if channel:
-                embed = discord.Embed(
-                    title="🟢 Bot起動",
-                    description="FF14 Botがオンラインになりました！",
-                    color=discord.Color.green()
-                )
-                try:
-                    await channel.send(embed=embed)
-                except discord.Forbidden:
-                    print(f"⚠️ チャンネル {channel_id} への送信権限がありません")
+        # # 起動通知（オプション）
+        # channel_id = self.config_manager.channel_id
+        # if channel_id:
+        #     channel = self.get_channel(channel_id)
+        #     if channel:
+        #         embed = discord.Embed(
+        #             title="🟢 Bot起動",
+        #             description="FF14 Botがオンラインになりました！",
+        #             color=discord.Color.green()
+        #         )
+        #         try:
+        #             await channel.send(embed=embed)
+        #         except discord.Forbidden:
+        #             print(f"⚠️ チャンネル {channel_id} への送信権限がありません")
     
     async def on_command_error(self, ctx: commands.Context, error: Exception):
         """コマンドエラーハンドラ"""

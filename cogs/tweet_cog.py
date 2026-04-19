@@ -10,7 +10,6 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 # プロジェクトルートからの相対パスでファイルパスを解決
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-SENT_TWEETS_FILE = os.path.join(BASE_DIR, "sent_tweets.json")
 
 
 class TweetCog(commands.Cog):
@@ -30,9 +29,10 @@ class TweetCog(commands.Cog):
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
         
-        self.channel_id = config["CHANNEL_ID"]
+        self.channel_id = int(config["CHANNEL_ID"])
         self.x_user = "FF_XIV_JP"
-        self.data_file_tweets = config.get("DATA_FILE_TWEETS", "sent_tweets.json")
+        data_file = config.get("DATA_FILE_TWEETS", "sent_tweets.json")
+        self.data_file_tweets = os.path.join(BASE_DIR, data_file)
         self.sent_tweets = self.load_sent_tweets()
         
         # 定期タスクの開始
@@ -294,14 +294,6 @@ class TweetCog(commands.Cog):
 
         return []
 
-    async def get_tweet_ids_api_fallback(self, username: str, count: int = 2) -> list:
-        """
-        最終手段: 既知のツイートIDパターンから推測
-        （この方法は推奨されませんが、完全にアクセスできない場合の最後の手段）
-        """
-        print("警告: すべての取得方法が失敗しました")
-        return []
-
     def load_sent_tweets(self) -> list:
         """
         送信済みツイートIDをJSONファイルから読み込みます。
@@ -310,7 +302,7 @@ class TweetCog(commands.Cog):
             送信済みツイートIDのリスト
         """
         try:
-            with open(SENT_TWEETS_FILE, "r", encoding="utf-8") as f:
+            with open(self.data_file_tweets, "r", encoding="utf-8") as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return []

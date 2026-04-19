@@ -74,11 +74,6 @@ class ProfileCog(BaseCog):
         self.bot = bot
         self.profile_manager = ProfileManager()
     
-    @staticmethod
-    def normalize_input(text: str) -> str:
-        """入力文字列を正規化（先頭を大文字に）"""
-        return text.strip().capitalize()
-    
     @commands.command(name="iam", aliases=["register", "登録"])
     async def iam(
         self, 
@@ -111,8 +106,8 @@ class ProfileCog(BaseCog):
         
         # Lodestoneで検索
         async with ctx.typing():
-            character_id = self.lodestone_search(full_name, server)
-            
+            character_id = await self.lodestone_search(full_name, server)
+
             if not character_id:
                 embed = discord.Embed(
                     title="❌ キャラクターが見つかりません",
@@ -187,7 +182,7 @@ class ProfileCog(BaseCog):
         character_id = profile.get("character_id")
         if not character_id:
             async with ctx.typing():
-                character_id = self.lodestone_search(full_name, server)
+                character_id = await self.lodestone_search(full_name, server)
                 if character_id:
                     profile["character_id"] = character_id
                     self.profile_manager.set(str(ctx.author.id), profile)

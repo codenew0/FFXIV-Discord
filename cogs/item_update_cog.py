@@ -152,10 +152,7 @@ class ItemUpdateCog(commands.Cog):
             # 非同期セッションで処理
             async with aiohttp.ClientSession() as session:
                 progress_msg = await ctx.send(f"🔄 アイテム更新中... (0/{new_count})")
-                
-                tasks = []
-                current = 0
-                
+
                 # 新しいアイテムを処理（同時に10件まで）
                 semaphore = asyncio.Semaphore(10)
                 

@@ -242,6 +242,34 @@ async def on_message(message: discord.Message):
     await bot.process_commands(message)
 
 
+# ==================== アナウンス ====================
+
+ANNOUNCE_TEXT = """📢 **FF14 Bot アップデートのお知らせ**
+
+🆕 **新機能**
+**【サーバー指定で価格検索】**
+`!i` コマンドにサーバー指定オプションを追加しました！
+```
+!i <サーバー> <アイテム名>
+例: !i atomos オーケストリオン譜:鬼の棲む島
+```
+指定なしの場合はこれまで通り Japan 全体で検索します。
+
+🔧 **改善**
+**【価格情報の取得が速く・安定に】**
+Universalis のページを開いてスクレイピングしていた方式を、API 直接呼び出しに変更しました。取得速度が上がり、サイト変更による突然の故障も減ります。表示フォーマットは従来通り（鯖・DC・価格・量・合計・更新）です。
+
+**【AI チャットの安定性向上】**
+接続が切れても自動で再接続するようになりました。「エラーが発生しました」が出にくくなっているはずです。"""
+
+
+@bot.command(name="announce", hidden=True)
+@commands.is_owner()
+async def announce(ctx: commands.Context):
+    """アップデートお知らせを送信（Bot所有者のみ）"""
+    await ctx.send(ANNOUNCE_TEXT)
+
+
 # ==================== 基本コマンド ====================
 
 @bot.command(name="ping", aliases=["p"])

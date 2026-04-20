@@ -1,10 +1,11 @@
 # cogs/item_price_cog.py
+import asyncio
 import time
 import discord
 from discord.ext import commands
 import os
 import json
-import requests
+import aiohttp
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 ITEMS_FILE = os.path.join(BASE_DIR, "tradable_items.json")
@@ -109,13 +110,31 @@ class ItemCog(commands.Cog):
         ]
         return ("partial", matches) if matches else ("none", None)
 
-    def _fetch_listings(self, item_id: str, server: str) -> list[dict]:
-        """Universalis API からリスト（最大15件）を取得。"""
+    async def _fetch_listings(self, item_id: str, server: str) -> list[dict]:
+        """Universalis API からリスト（最大15件）を非同期取得。失敗時は2回までリトライ。"""
         url = f"{UNIVERSALIS_API}/{server}/{item_id}?listings=15&entries=0"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("listings", [])
+        timeout = aiohttp.ClientTimeout(total=15)
+        last_exc = None
+
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(url) as resp:
+                        resp.raise_for_status()
+                        data = await resp.json()
+                        return data.get("listings", [])
+            except asyncio.TimeoutError as e:
+                last_exc = e
+                print(f"[item] タイムアウト (試行 {attempt + 1}/3): {url}")
+                if attempt < 2:
+                    await asyncio.sleep(2)
+            except aiohttp.ClientError as e:
+                last_exc = e
+                print(f"[item] ネットワークエラー (試行 {attempt + 1}/3): {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2)
+
+        raise last_exc
 
     @staticmethod
     def _fmt_elapsed(unix_ts: int) -> str:
@@ -151,11 +170,11 @@ class ItemCog(commands.Cog):
         item_img = f"https://universalis-ffxiv.github.io/universalis-assets/icon2x/{item_id}.png"
 
         try:
-            listings = self._fetch_listings(item_id, region)
-        except requests.exceptions.Timeout:
-            await ctx.reply("⏱️ リクエストがタイムアウトしました。", mention_author=False)
+            listings = await self._fetch_listings(item_id, region)
+        except asyncio.TimeoutError:
+            await ctx.reply("⏱️ 3回試しましたがタイムアウトしました。しばらく待ってから再試行してください。", mention_author=False)
             return
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientError as e:
             await ctx.reply(f"❌ ネットワークエラー: {e}", mention_author=False)
             return
 

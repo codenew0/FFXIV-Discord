@@ -29,6 +29,15 @@ WORLD_DC: dict[str, str] = {
     "Unicorn": "Mete", "Valefor": "Mete", "Yojimbo": "Mete", "Zeromus": "Mete",
 }
 
+DC_ALIASES: dict[str, str] = {
+    "elem": "Elemental",
+    "elemental": "Elemental",
+    "gaia": "Gaia",
+    "mana": "Mana",
+    "mete": "Meteor",
+    "meteor": "Meteor",
+}
+
 
 class ItemCog(commands.Cog):
     """アイテムの価格情報を Universalis API から取得するCog。"""
@@ -81,17 +90,24 @@ class ItemCog(commands.Cog):
                 return w
         return None
 
-    def _parse_args(self, args: str) -> tuple[str | None, str]:
+    def _normalize_dc(self, name: str) -> str | None:
+        """DC名/略称をUniversalis APIで使う正式名に正規化。"""
+        return DC_ALIASES.get(name.lower())
+
+    def _parse_args(self, args: str) -> tuple[str | None, str, bool]:
         """
-        '!i [server] item' を (server, item) に分割する。
-        先頭のトークンが有効なワールド名であればサーバーとして扱う。
+        '!i [server|dc] item' を (location, item, is_world) に分割する。
+        先頭のトークンが有効なワールド名またはDC名であれば検索対象として扱う。
         """
         parts = args.split(None, 1)
         if len(parts) == 2:
             world = self._normalize_world(parts[0])
             if world:
-                return world, parts[1]
-        return None, args
+                return world, parts[1], True
+            dc = self._normalize_dc(parts[0])
+            if dc:
+                return dc, parts[1], False
+        return None, args, False
 
     def _find_item(self, query: str):
         """アイテム名（日本語/英語）で検索。exact / partial / none を返す。"""
@@ -164,6 +180,7 @@ class ItemCog(commands.Cog):
         item_jp: str,
         item_en: str,
         server: str | None,
+        is_world: bool = False,
     ):
         region = server or "Japan"
         item_page = f"https://universalis.app/market/{item_id}"
@@ -189,7 +206,7 @@ class ItemCog(commands.Cog):
             await ctx.reply(embed=embed, mention_author=False)
             return
 
-        single_world = server is not None  # サーバー指定の場合は鯖・DC列不要
+        single_world = server is not None and is_world  # ワールド指定の場合は鯖・DC列不要
 
         rows = []
         for li in listings:
@@ -271,8 +288,10 @@ class ItemCog(commands.Cog):
         アイテムの価格情報を取得します
         Usage: !item <アイテム名>
                !i <サーバー> <アイテム名>  ← サーバー指定
+               !i <DC> <アイテム名>        ← DC指定
         例:    !i アイスシャード
                !i atomos オーケストリオン譜:鬼の棲む島
+               !i elem アイスシャード
         """
         if not args:
             embed = discord.Embed(
@@ -285,7 +304,8 @@ class ItemCog(commands.Cog):
                 value=(
                     "`!item <アイテム名>`\n"
                     "`!i <アイテム名>`\n"
-                    "`!i <サーバー> <アイテム名>`"
+                    "`!i <サーバー> <アイテム名>`\n"
+                    "`!i <DC> <アイテム名>`"
                 ),
                 inline=False,
             )
@@ -294,27 +314,29 @@ class ItemCog(commands.Cog):
                 value=(
                     "`!i アイスシャード`\n"
                     "`!i Ice Shard`\n"
-                    "`!i atomos オーケストリオン譜:鬼の棲む島`"
+                    "`!i atomos オーケストリオン譜:鬼の棲む島`\n"
+                    "`!i Elem アイスシャード`\n"
+                    "`!i Elemental アイスシャード`"
                 ),
                 inline=False,
             )
             await ctx.reply(embed=embed, mention_author=False)
             return
 
-        server, query = self._parse_args(args)
+        server, query, is_world = self._parse_args(args)
         match_type, results = self._find_item(query)
 
         if match_type == "exact":
             item_id, item_jp, item_en = results
             async with ctx.typing():
-                await self._show_price(ctx, item_id, item_jp, item_en, server)
+                await self._show_price(ctx, item_id, item_jp, item_en, server, is_world)
 
         elif match_type == "partial":
             if len(results) == 1:
                 item_id, item_jp, item_en = results[0]
                 msg = await ctx.send(f"🔍 「{query}」→「**{item_jp}**」の価格情報を取得中...")
                 async with ctx.typing():
-                    await self._show_price(ctx, item_id, item_jp, item_en, server)
+                    await self._show_price(ctx, item_id, item_jp, item_en, server, is_world)
                 try:
                     await msg.delete()
                 except Exception:

@@ -4,6 +4,9 @@ import json
 import re
 import asyncio
 from datetime import datetime
+from urllib.parse import quote
+import xml.etree.ElementTree as ET
+import aiohttp
 from discord.ext import commands, tasks
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
@@ -37,6 +40,239 @@ class TweetCog(commands.Cog):
         
         # 定期タスクの開始
         self.fetch_tweets_task.start()
+
+    def _unique_latest_tweet_ids(self, tweet_ids: list, count: int) -> list:
+        """取得元ごとの表示順に依存せず、Snowflake IDの新しい順に整えます。"""
+        unique_ids = {
+            str(tweet_id)
+            for tweet_id in tweet_ids
+            if str(tweet_id).isdigit()
+        }
+        return sorted(unique_ids, key=lambda tweet_id: int(tweet_id), reverse=True)[:count]
+
+    async def get_latest_tweet_ids(self, username: str, count: int = 2) -> list:
+        """
+        複数の取得方法を使って最新ツイートIDを取得します。
+
+        Xの未ログイン向けプロフィールページは古い内容を返すことがあるため、
+        検索の最新タブを優先し、最後にIDの新しい順で正規化します。
+        """
+        fetch_count = max(count, 5)
+        tweet_ids = []
+
+        rss_ids = await self.get_tweet_ids_nitter_rss(username, fetch_count)
+        if rss_ids:
+            print(f"Nitter RSSから{len(rss_ids)}件取得しました")
+            tweet_ids.extend(rss_ids)
+
+        if len(tweet_ids) >= count:
+            return self._unique_latest_tweet_ids(tweet_ids, count)
+
+        search_ids = await self.get_tweet_ids_search_playwright(username, fetch_count)
+        if search_ids:
+            print(f"X検索から{len(search_ids)}件取得しました")
+            tweet_ids.extend(search_ids)
+
+        if len(tweet_ids) < count:
+            profile_ids = await self.get_tweet_ids_playwright(username, fetch_count)
+            if profile_ids:
+                print(f"プロフィールから{len(profile_ids)}件取得しました")
+                tweet_ids.extend(profile_ids)
+
+        if not tweet_ids:
+            print("vxTwitterを試行します...")
+            tweet_ids = await self.get_tweet_ids_vxtwitter(username, fetch_count)
+
+        return self._unique_latest_tweet_ids(tweet_ids, count)
+
+    async def get_tweet_ids_nitter_rss(self, username: str, count: int = 2) -> list:
+        """
+        NitterのRSSから本人投稿のツイートIDを取得します。
+
+        Xの未ログインページは古いHTMLや空DOMを返すことがあるため、
+        RSSで取れる場合はこちらを最優先します。
+        """
+        urls = [
+            f"https://nitter.net/{username}/rss",
+        ]
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
+        }
+
+        timeout = aiohttp.ClientTimeout(total=20)
+        for url in urls:
+            try:
+                print(f"Nitter RSSを取得中: {url}")
+                async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            print(f"Nitter RSS取得失敗: HTTP {response.status}")
+                            continue
+                        rss_text = await response.text()
+
+                root = ET.fromstring(rss_text)
+                namespaces = {"dc": "http://purl.org/dc/elements/1.1/"}
+                tweet_ids = []
+                seen_ids = set()
+
+                for item in root.findall(".//item"):
+                    creator = item.findtext("dc:creator", default="", namespaces=namespaces)
+                    link = item.findtext("link", default="")
+                    title = item.findtext("title", default="")
+
+                    if creator.lower() != f"@{username.lower()}":
+                        continue
+                    if title.startswith("RT by @"):
+                        continue
+
+                    match = re.search(rf"/{re.escape(username)}/status/(\d+)", link)
+                    if not match:
+                        guid = item.findtext("guid", default="")
+                        match = re.search(r"(\d{15,})", guid)
+                    if not match:
+                        continue
+
+                    tweet_id = match.group(1)
+                    if tweet_id not in seen_ids:
+                        tweet_ids.append(tweet_id)
+                        seen_ids.add(tweet_id)
+                        print(f"Nitter RSSから取得: {tweet_id}")
+
+                    if len(tweet_ids) >= count:
+                        break
+
+                if tweet_ids:
+                    return self._unique_latest_tweet_ids(tweet_ids, count)
+
+            except ET.ParseError as e:
+                print(f"Nitter RSS解析エラー: {e}")
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                print(f"Nitter RSS通信エラー: {e}")
+            except Exception as e:
+                print(f"Nitter RSSエラー: {e}")
+
+        return []
+
+    async def get_tweet_ids_search_playwright(self, username: str, count: int = 2) -> list:
+        """
+        X検索の「最新」タブからツイートIDを取得します。
+
+        プロフィールページの未ログイン表示が数日から1週間ほど遅延する場合の
+        メイン回避策です。
+        """
+        async with async_playwright() as p:
+            try:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                        '--disable-gpu'
+                    ]
+                )
+            except Exception as e:
+                print(f"検索用ブラウザ起動エラー: {e}")
+                return []
+
+            try:
+                context = await browser.new_context(
+                    viewport={'width': 1920, 'height': 1080},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                page = await context.new_page()
+                await page.set_extra_http_headers({
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
+                })
+
+                query = quote(f"from:{username} -filter:replies")
+                url = f"https://x.com/search?q={query}&src=typed_query&f=live"
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[{timestamp}] {url} にアクセス中...")
+
+                try:
+                    await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                except PlaywrightTimeout:
+                    print("検索ページ読み込みタイムアウト。部分的に読み込まれた内容で続行します...")
+
+                await page.wait_for_timeout(5000)
+
+                try:
+                    close_buttons = await page.query_selector_all('[aria-label="閉じる"], [aria-label="Close"]')
+                    for button in close_buttons:
+                        try:
+                            await button.click(timeout=1000)
+                            await page.wait_for_timeout(500)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+                tweet_ids = []
+                seen_ids = set()
+                max_attempts = 3
+
+                for attempt in range(max_attempts):
+                    if len(tweet_ids) >= count:
+                        break
+
+                    articles = await page.query_selector_all('article[data-testid="tweet"]')
+                    print(f"検索で見つかった記事数: {len(articles)}")
+
+                    for article in articles:
+                        if len(tweet_ids) >= count:
+                            break
+
+                        try:
+                            if await self._is_retweet(article):
+                                continue
+
+                            links = await article.query_selector_all('a[href*="/status/"]')
+                            for link in links:
+                                href = await link.get_attribute('href')
+                                if href and f"/{username}/status/" in href:
+                                    match = re.search(r'/status/(\d+)', href)
+                                    if match:
+                                        tweet_id = match.group(1)
+                                        if tweet_id not in seen_ids:
+                                            tweet_ids.append(tweet_id)
+                                            seen_ids.add(tweet_id)
+                                            print(f"検索から取得: {tweet_id}")
+                                        break
+                        except Exception as e:
+                            print(f"検索記事処理エラー: {e}")
+                            continue
+
+                    if len(tweet_ids) >= count:
+                        break
+
+                    if attempt < max_attempts - 1:
+                        await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        await page.wait_for_timeout(3000)
+
+                return self._unique_latest_tweet_ids(tweet_ids, count)
+
+            except Exception as e:
+                print(f"検索スクレイピングエラー: {e}")
+                return []
+
+            finally:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                await browser.close()
 
     async def get_tweet_ids_playwright(self, username: str, count: int = 2) -> list:
         """
@@ -326,12 +562,7 @@ class TweetCog(commands.Cog):
         例: !X 3
         """
         async with ctx.typing():
-            tweet_ids = await self.get_tweet_ids_playwright(self.x_user, count)
-
-            # 代替手段1: vxtwitter
-            if not tweet_ids:
-                print("vxTwitterを試行します...")
-                tweet_ids = await self.get_tweet_ids_vxtwitter(self.x_user, count)
+            tweet_ids = await self.get_latest_tweet_ids(self.x_user, count)
 
             if tweet_ids:
                 messages = []
@@ -358,13 +589,7 @@ class TweetCog(commands.Cog):
 
         self.sent_tweets = self.load_sent_tweets()
 
-        # メイン手段
-        tweet_ids = await self.get_tweet_ids_playwright(self.x_user, 3)
-        
-        # 代替手段1: vxtwitter
-        if not tweet_ids:
-            print("vxTwitterを試行します...")
-            tweet_ids = await self.get_tweet_ids_vxtwitter(self.x_user, 3)
+        tweet_ids = await self.get_latest_tweet_ids(self.x_user, 3)
         
         if not tweet_ids:
             print("ツイートIDの取得に失敗しました。次回の実行を待ちます。")

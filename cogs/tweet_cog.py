@@ -57,7 +57,7 @@ class TweetCog(commands.Cog):
         Xの未ログイン向けプロフィールページは古い内容を返すことがあるため、
         検索の最新タブを優先し、最後にIDの新しい順で正規化します。
         """
-        fetch_count = max(count, 5)
+        fetch_count = max(count * 3, 10)
         tweet_ids = []
 
         rss_ids = await self.get_tweet_ids_nitter_rss(username, fetch_count)
@@ -66,6 +66,14 @@ class TweetCog(commands.Cog):
             tweet_ids.extend(rss_ids)
 
         if len(tweet_ids) >= count:
+            return self._unique_latest_tweet_ids(tweet_ids, count)
+
+        nitter_ids = await self.get_tweet_ids_nitter_page(username, fetch_count)
+        if nitter_ids:
+            print(f"Nitterページから{len(nitter_ids)}件取得しました")
+            tweet_ids.extend(nitter_ids)
+
+        if len(self._unique_latest_tweet_ids(tweet_ids, count)) >= count:
             return self._unique_latest_tweet_ids(tweet_ids, count)
 
         search_ids = await self.get_tweet_ids_search_playwright(username, fetch_count)
@@ -79,9 +87,9 @@ class TweetCog(commands.Cog):
                 print(f"プロフィールから{len(profile_ids)}件取得しました")
                 tweet_ids.extend(profile_ids)
 
-        if not tweet_ids:
+        if len(self._unique_latest_tweet_ids(tweet_ids, count)) < count:
             print("vxTwitterを試行します...")
-            tweet_ids = await self.get_tweet_ids_vxtwitter(username, fetch_count)
+            tweet_ids.extend(await self.get_tweet_ids_vxtwitter(username, fetch_count))
 
         return self._unique_latest_tweet_ids(tweet_ids, count)
 
@@ -155,6 +163,54 @@ class TweetCog(commands.Cog):
                 print(f"Nitter RSS通信エラー: {e}")
             except Exception as e:
                 print(f"Nitter RSSエラー: {e}")
+
+        return []
+
+    async def get_tweet_ids_nitter_page(self, username: str, count: int = 2) -> list:
+        """
+        NitterのHTMLページから本人投稿のツイートIDを取得します。
+
+        RSSでRTを除外した結果、指定件数に届かない場合の補助ルートです。
+        """
+        url = f"https://nitter.net/{username}"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+        try:
+            print(f"Nitterページを取得中: {url}")
+            timeout = aiohttp.ClientTimeout(total=20)
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        print(f"Nitterページ取得失敗: HTTP {response.status}")
+                        return []
+                    html = await response.text()
+
+            tweet_ids = []
+            seen_ids = set()
+            pattern = rf'href="/{re.escape(username)}/status/(\d+)(?:[#?][^"]*)?"'
+            for match in re.finditer(pattern, html):
+                tweet_id = match.group(1)
+                if tweet_id in seen_ids:
+                    continue
+                tweet_ids.append(tweet_id)
+                seen_ids.add(tweet_id)
+                print(f"Nitterページから取得: {tweet_id}")
+                if len(tweet_ids) >= count:
+                    break
+
+            return self._unique_latest_tweet_ids(tweet_ids, count)
+
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"Nitterページ通信エラー: {e}")
+        except Exception as e:
+            print(f"Nitterページエラー: {e}")
 
         return []
 

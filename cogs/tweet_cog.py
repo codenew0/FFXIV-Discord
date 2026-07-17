@@ -34,11 +34,16 @@ class TweetCog(commands.Cog):
         
         self.channel_id = int(config["CHANNEL_ID"])
         self.x_user = "FF_XIV_JP"
+        self.check_interval_minutes = max(
+            float(config.get("TWEET_CHECK_INTERVAL_MINUTES", 2)),
+            1,
+        )
         data_file = config.get("DATA_FILE_TWEETS", "sent_tweets.json")
         self.data_file_tweets = os.path.join(BASE_DIR, data_file)
         self.sent_tweets = self.load_sent_tweets()
         
         # 定期タスクの開始
+        self.fetch_tweets_task.change_interval(minutes=self.check_interval_minutes)
         self.fetch_tweets_task.start()
 
     def _unique_latest_tweet_ids(self, tweet_ids: list, count: int) -> list:
@@ -633,10 +638,10 @@ class TweetCog(commands.Cog):
                     "しばらく待ってから再度お試しください。"
                 )
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=2)
     async def fetch_tweets_task(self):
         """
-        30分ごとに最新ツイートをチェックし、新規ツイートがあればDiscordに通知します。
+        設定された間隔で最新ツイートをチェックし、新規ツイートがあればDiscordに通知します。
         """
         channel = self.bot.get_channel(self.channel_id)
         if not channel:
@@ -645,7 +650,7 @@ class TweetCog(commands.Cog):
 
         self.sent_tweets = self.load_sent_tweets()
 
-        tweet_ids = await self.get_latest_tweet_ids(self.x_user, 3)
+        tweet_ids = await self.get_latest_tweet_ids(self.x_user, 10)
         
         if not tweet_ids:
             print("ツイートIDの取得に失敗しました。次回の実行を待ちます。")
@@ -657,7 +662,7 @@ class TweetCog(commands.Cog):
             print("初回実行: 最新ツイートIDを保存しました")
             return
 
-        last_sent_tweet_id = self.sent_tweets[0]
+        last_sent_tweet_id = max(self.sent_tweets, key=lambda x: int(x))
 
         # 新規ツイートを検出
         new_tweets = []
@@ -669,32 +674,36 @@ class TweetCog(commands.Cog):
             print("新規ツイートはありません")
             return
 
-        newest_tweet_id = max(new_tweets, key=lambda x: int(x))
+        # 複数の新規投稿がある場合は、投稿順になるよう古いものから通知
+        sent_now = []
+        for tweet_id in sorted(new_tweets, key=lambda x: int(x)):
+            try:
+                await channel.send(
+                    f"🐦 新しいツイートがあります！\n"
+                    f"https://x.com/{self.x_user}/status/{tweet_id}"
+                )
+                sent_now.append(tweet_id)
+                print(f"新規ツイートを通知しました: {tweet_id}")
+            except Exception as e:
+                print(f"通知送信エラー: {e}")
+                break
 
-        # 通知を送信
-        try:
-            await channel.send(
-                f"🐦 新しいツイートがあります！\n"
-                f"https://x.com/{self.x_user}/status/{newest_tweet_id}"
-            )
-            print(f"新規ツイートを通知しました: {newest_tweet_id}")
-        except Exception as e:
-            print(f"通知送信エラー: {e}")
-            return
-
-        # 送信済みリストを更新
-        updated_sent_tweets = [newest_tweet_id]
-        for tweet_id in self.sent_tweets:
-            if tweet_id != newest_tweet_id and len(updated_sent_tweets) < 10:
-                updated_sent_tweets.append(tweet_id)
-
-        self.save_sent_tweets(updated_sent_tweets)
+        if sent_now:
+            updated_sent_tweets = sorted(
+                set(sent_now + self.sent_tweets),
+                key=lambda x: int(x),
+                reverse=True,
+            )[:10]
+            self.save_sent_tweets(updated_sent_tweets)
 
     @fetch_tweets_task.before_loop
     async def before_fetch_tweets(self):
         """定期タスク開始前にBotの準備完了を待機します。"""
         await self.bot.wait_until_ready()
-        print("TweetCog: 定期タスクを開始しました")
+        print(
+            f"TweetCog: 定期タスクを開始しました "
+            f"({self.check_interval_minutes:g}分間隔)"
+        )
 
     @fetch_tweets_task.error
     async def fetch_tweets_task_error(self, error):

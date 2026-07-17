@@ -38,6 +38,13 @@ DC_ALIASES: dict[str, str] = {
     "meteor": "Meteor",
 }
 
+DC_SHORT: dict[str, str] = {
+    "Elem": "El",
+    "Gaia": "Ga",
+    "Mana": "Ma",
+    "Mete": "Me",
+}
+
 
 class ItemCog(commands.Cog):
     """アイテムの価格情報を Universalis API から取得するCog。"""
@@ -216,8 +223,8 @@ class ItemCog(commands.Cog):
             ts = li.get("lastReviewTime", 0)
             hq = "HQ" if li.get("hq") else "NQ"
             world_full = li.get("worldName") or server or "?"
-            world = world_full[:4]
-            dc = WORLD_DC.get(world_full, "?")
+            world = world_full[:3]
+            dc = DC_SHORT.get(WORLD_DC.get(world_full, "?"), "?")
             rows.append({
                 "world": world,
                 "dc": dc,
@@ -231,18 +238,17 @@ class ItemCog(commands.Cog):
         # テーブル構築
         if single_world:
             cols = ["hq", "price", "qty", "total", "upd"]
-            headers = {"hq": "品質", "price": "価格", "qty": "量", "total": "合計", "upd": "更新"}
+            headers = {"hq": "品", "price": "価格", "qty": "量", "total": "合計", "upd": "時"}
+            widths = {"hq": 2, "price": 9, "qty": 3, "total": 9, "upd": 3}
         else:
             cols = ["world", "dc", "price", "qty", "total", "upd"]
-            headers = {"world": "鯖", "dc": "DC", "price": "価格", "qty": "量", "total": "合計", "upd": "更新"}
-
-        widths = {
-            col: max(self._display_width(headers[col]), max(self._display_width(r[col]) for r in rows))
-            for col in cols
-        }
+            headers = {"world": "鯖", "dc": "DC", "price": "価格", "qty": "量", "total": "合計", "upd": "時"}
+            # 通常価格（1,000万未満）では1行34表示幅以内。
+            # 高額価格は桁を省略せず、その行だけ必要な幅まで伸ばす。
+            widths = {"world": 3, "dc": 2, "price": 9, "qty": 3, "total": 9, "upd": 3}
 
         def build_line(row_or_header):
-            return " | ".join(self._pad(row_or_header[c], widths[c]) for c in cols)
+            return " ".join(self._pad(row_or_header[c], widths[c]) for c in cols)
 
         header_line = build_line(headers)
         lines = [header_line, "-" * self._display_width(header_line)]

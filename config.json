@@ -1,5 +1,6 @@
 {
     "CHANNEL_ID": 1339577526288253048,
+    "TWEET_CHECK_INTERVAL_MINUTES": 2,
     "DATA_FILE_USERNAMES": "usernames.json",
     "DATA_FILE_TWEETS": "sent_tweets.json",
     "DATA_FILE_WORLD_JP": "worlds_jp.json",
